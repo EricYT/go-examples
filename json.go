@@ -3,42 +3,45 @@ package main
 import "fmt"
 import "encoding/json"
 
-type Json1 struct {
-  Id int64
-  Name string
-  Index []int
-  Addres []string
+type Response1 struct {
+	Page   int
+	Fruits []string
 }
 
-type Json2 struct {
-  Id int64       `json:"id"`
-  Name string    `json:"name"`
-  Index []int    `json:"index"`
-  Addres []string`json:"addres"`
+type Response2 struct {
+	Page   int      `json:"page"`
+	Fruits []string `json:"fruits"`
 }
-
 
 func main() {
-  str1 := "string"
-  strJ, _ := json.Marshal(str1)
-  fmt.Println(string(strJ))
+	slcE := []string{"abc", "def", "xyz"}
+	slcD, _ := json.Marshal(slcE)
+	fmt.Println(string(slcD))
 
-  struct1 := &Json1{
-    Id : 1234,
-    Name : "zhou",
-    Index : []int{1, 2, 3},
-    Addres : []string{"a", "b", "c"},
-  }
-  structJ, _ := json.Marshal(struct1)
-  fmt.Println(string(structJ))
+	mapA := map[string]int{"abc": 1, "def": 2}
+	mapC, _ := json.Marshal(mapA)
+	fmt.Println(string(mapC))
 
-  struct2 := &Json2{
-    Id : 1234,
-    Name : "eric",
-    Index : []int{1, 2, 3},
-    Addres : []string{"a", "b", "c"},
-  }
-  structJ1, _ := json.Marshal(struct2)
-  fmt.Println(string(structJ1))
+	res1 := &Response1{
+		Page:   1,
+		Fruits: []string{"abc", "def"}}
+	resJ, _ := json.Marshal(res1)
+	fmt.Println(string(resJ))
+
+	res2 := &Response2{
+		Page:   2,
+		Fruits: []string{"def", "ghi"}}
+	resJ2, _ := json.Marshal(res2)
+	fmt.Println(string(resJ2))
+
+	a := 5
+	switch {
+	case a > 1:
+	case a > 2:
+	case a > 3:
+		fmt.Println("shit2")
+	default:
+		fmt.Println("fuck3")
+	}
 
 }

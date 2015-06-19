@@ -2,34 +2,28 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
 	"time"
 )
 
-func do_loop(n int) {
-	for i := 0; i < 10; i++ {
-		fmt.Println(i, " : ", n)
-		amt := time.Duration(rand.Intn(250))
-		time.Sleep(time.Millisecond * amt)
-	}
-}
-
-func do_loop_delay(n int) {
-	for i := 0; i < 10; i++ {
-		fmt.Println(n, " : ", i)
-		amt := time.Duration(rand.Intn(250))
-		time.Sleep(time.Millisecond * amt)
-	}
-}
+var counter int
 
 func main() {
-	go do_loop(10)
+	countc := make(chan int, 1)
 
-	for i := 0; i < 10; i++ {
-		go do_loop_delay(i)
+	for i := 0; i < 3; i++ {
+		go count(countc)
 	}
 
-	var input string
-	fmt.Scanln(&input)
-	fmt.Println("input is ", input)
+	for {
+		value := <-countc
+		fmt.Println("channel count ", value)
+	}
+
+	time.Sleep(time.Millisecond * 10)
+}
+
+func count(c chan int) {
+	counter++
+	fmt.Println(counter)
+	c <- counter
 }

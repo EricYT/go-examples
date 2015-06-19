@@ -2,53 +2,79 @@ package main
 
 import (
 	"fmt"
-	"math"
 )
 
-type Circle struct {
-	x float64
-	y float64
-	r float64
-}
+const (
+	FirstName = "eric"
+	LastName  = "yu"
+)
 
-func (c *Circle) area() float64 {
-	return math.Pi * c.r * c.r
-}
-
-// type Circle struct { x, y, r float64}
-
-// android and person struct
 type Person struct {
-	Name string
+	FirstName, LastName string
 }
 
-type Android struct {
-	Person Person
-	Model  string
+func (p *Person) Introduce() {
+	fmt.Println(" Persion output")
 }
 
-func (pPtr *Person) name() string {
-	fmt.Println("person name is ", pPtr.Name)
-	return pPtr.Name
+func (p *Person) Show() {
+	fmt.Println("FirstName: ", p.FirstName)
+	fmt.Println("LastName: ", p.LastName)
+}
+
+func MakePersion(firstName string, lastName string) *Person {
+	return &Person{
+		FirstName: firstName,
+		LastName:  lastName,
+	}
+}
+
+func MakePersion1(firstName string, lastName string) Person {
+	return Person{
+		FirstName: firstName,
+		LastName:  lastName,
+	}
+}
+
+// Saiyan
+type Saiyan struct {
+	*Person
+	Power int
+}
+
+func (s *Saiyan) Introduce() {
+	fmt.Println(" Saiyan output")
+	s.Show()
+}
+
+func MakeSaiyan(firstName string, lastName string, power int) Saiyan {
+	return Saiyan{
+		Person: &Person{
+			FirstName: firstName,
+			LastName:  lastName,
+		},
+		Power: power,
+	}
+}
+
+// func
+type Add func(a int, b int) int
+
+func process(add Add) int {
+	return add(1, 2)
 }
 
 func main() {
-	defer func() {
-		str := recover()
-		fmt.Println("error ", str)
-	}()
+	per1 := MakePersion(FirstName, LastName)
+	per2 := MakePersion1(FirstName, LastName)
 
-	cir := Circle{0, 0, 5}
+	per1.Show()
+	per2.Show()
 
-	fmt.Println(cir.x, cir.y, cir.r)
-	fmt.Println(math.Pi)
-	fmt.Println(cir.area())
+	saiyan := MakeSaiyan(FirstName, LastName, 100)
+	saiyan.Person.Introduce()
+	saiyan.Introduce()
 
-	android := new(Android)
-	android.Person.Name = "eric"
-	android.Perso.name()
-	//	android.Name = "yutao"
-	android.Person.Name = "yutao"
-	//	android.name()
-
+	// func
+	fmt.Println(process(func(a int, b int) int { return a + b }))
 }

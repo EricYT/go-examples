@@ -1,18 +1,33 @@
 package main
 
-import (
-	"fmt"
-)
+import "fmt"
+import "time"
 
 func main() {
-	varString := "string"
+	var today int64
+	today = 5
 
-	switch t := type(varString) {
+	fmt.Print("Today is ", today, " as \n")
+	switch today {
+	case 1:
+		fmt.Print("1\n")
+	case 2:
+		fmt.Print("2\n")
 	default:
-		fmt.Printf("unexpected type %T", t)
-	case bool:
-		fmt.Printf("boolean  %t\n", t)
-	case int:
-		fmt.Printf("int  %t\n", t)
+		fmt.Print("Other\n")
+	}
+
+	switch time.Now().Weekday() {
+	case time.Friday:
+		fmt.Println("today is Friday")
+	default:
+		fmt.Println("I don't know")
+	}
+
+	switch {
+	case time.Now().Hour() < 20:
+		fmt.Println("not to late")
+	default:
+		fmt.Println("time to go home")
 	}
 }

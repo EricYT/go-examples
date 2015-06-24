@@ -9,8 +9,10 @@ type Response1 struct {
 }
 
 type Response2 struct {
-	Page   int      `json:"page"`
-	Fruits []string `json:"fruits"`
+	Page   int        `json:"page"`
+	Fruits []string   `json:"fruits"`
+	R1     *Response1 `json:"response"`
+	//R1     *Response1 `json:"-"`
 }
 
 func main() {
@@ -30,7 +32,9 @@ func main() {
 
 	res2 := &Response2{
 		Page:   2,
-		Fruits: []string{"def", "ghi"}}
+		Fruits: []string{"def", "ghi"},
+		R1:     res1,
+	}
 	resJ2, _ := json.Marshal(res2)
 	fmt.Println(string(resJ2))
 

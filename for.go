@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	_ "math"
+)
 
 func main() {
 	var i int = 1

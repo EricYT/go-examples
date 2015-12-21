@@ -1,57 +1,127 @@
 package main
 
-import "fmt"
-import "reflect"
+import (
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"reflect"
+)
 
 type Foo struct {
-	x string `json:"x"`
-	y int
+	name string
 }
 
-type Bar interface {
-	Foo()
+//func (f *Foo) spark() {
+func (f Foo) spark() {
+	fmt.Println("function call by Foo spark")
+}
+
+type Bar struct {
+	name string
+}
+
+func (b Bar) spark() {
+	fmt.Println("function call by Bar spark")
+}
+
+type sparkint interface {
+	spark()
+}
+
+func do_spark(s interface{}) {
+	sType := reflect.TypeOf(s)
+	fmt.Println("do_spark type:", sType)
+	fmt.Println("do_spark type name:", sType.Name())
+	switch sType.Name() {
+	case "Foo":
+		fmt.Println("internal do_spark is main.Foo")
+		//foo, ok := s.(Foo)
+		foo, ok := s.(sparkint)
+		if !ok {
+			fmt.Println("convert foo error ", ok)
+			return
+		}
+		foo.spark()
+	case "Bar":
+		fmt.Println("internal do_spark is main.Bar")
+		bar, ok := s.(Bar)
+		if !ok {
+			fmt.Println("convert bar error ", ok)
+			return
+		}
+		bar.spark()
+	}
+}
+
+func loop(msg <-chan interface{}) {
+	log.Println("Loop start ...............")
+	for {
+		select {
+		case ops, ok := <-msg:
+			if !ok {
+				log.Println("loop receive error")
+				continue
+			}
+			opsType := reflect.TypeOf(ops)
+			fmt.Println("receive msg type:", opsType)
+			switch opsType.Name() {
+			case "Foo":
+				fmt.Println("loop receive type Foo")
+				foo, ok := ops.(Foo)
+				if !ok {
+					log.Println("convert error foo")
+					continue
+				}
+				foo.spark()
+			case "Bar":
+				fmt.Println("loop receive type Bar")
+				bar, ok := ops.(Bar)
+				if !ok {
+					log.Println("convert error bar")
+					continue
+				}
+				bar.spark()
+			default:
+				log.Println("loop receive other type ", opsType.Name())
+			}
+		}
+	}
 }
 
 func main() {
+	var foo = Foo{}
+	var bar = Bar{}
 
-	var i int = 123
-	var s string = "abc"
+	fooType := reflect.TypeOf(foo)
+	barType := reflect.TypeOf(bar)
 
-	bar := &Foo{
-		x: "string",
-		y: 123,
-	}
+	fmt.Println("foo type:", fooType.Name())
+	fmt.Println("bar type:", barType.Name())
 
-	fmt.Println(reflect.TypeOf(i))
-	fmt.Println(reflect.TypeOf(s))
-	fmt.Println(reflect.TypeOf(bar))
-	fmt.Println(reflect.TypeOf(bar).Elem())
-	fmt.Println(reflect.TypeOf(bar).String())
-	fmt.Println(reflect.TypeOf(bar).Name())
+	do_spark(foo)
+	do_spark(bar)
 
-	fmt.Println(reflect.TypeOf((*Bar)(nil)).Elem())
-	fmt.Println(reflect.TypeOf((*Bar)(nil)).String())
-	fmt.Println(reflect.TypeOf((*Bar)(nil)).Name())
+	/* chain */
+	opsChan := make(chan interface{})
+	go loop(opsChan)
 
-	//type filed
-	var foo Foo
-	typ := reflect.TypeOf(foo)
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		fmt.Printf(" %s type is : %s\n", field.Name, field.Type)
-	}
+	opsChan <- foo
+	opsChan <- bar
 
-	field2, _ := typ.FieldByName("x")
-	fmt.Println(field2.Name)
+	/* catch ctrl-c */
+	interruptSig := make(chan os.Signal, 1)
+	done := make(chan bool, 1)
 
-	// type interface
-	typ1 := reflect.TypeOf((*Bar)(nil))
-	for i := 0; i < typ1.NumField(); i++ {
-		field := typ1.Field(i)
-		fmt.Printf(" %s type is : %s\n", field.Name, field.Type)
-	}
+	signal.Notify(interruptSig, os.Interrupt, os.Kill)
 
-	field3, _ := typ1.FieldByName("x")
-	fmt.Println(field3.Name)
+	go func() {
+		s := <-interruptSig
+		fmt.Println("receive signal ", s)
+		done <- true
+	}()
+
+	fmt.Println("Main function end")
+	<-done
 
 }

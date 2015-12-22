@@ -46,6 +46,7 @@ func main() {
 		fmt.Println("client do request error ", err)
 		return
 	}
+	defer resp.Body.Close()
 
 	body, _ := ioutil.ReadAll(resp.Body)
 

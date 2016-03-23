@@ -15,6 +15,15 @@ type Response2 struct {
 	//R1     *Response1 `json:"-"`
 }
 
+type Foo struct {
+	Fb []Bar `json:""`
+}
+
+type Bar struct {
+	A string `json:"a"`
+	B string `json:"b"`
+}
+
 func main() {
 	slcE := []string{"abc", "def", "xyz"}
 	slcD, _ := json.Marshal(slcE)
@@ -37,6 +46,22 @@ func main() {
 	}
 	resJ2, _ := json.Marshal(res2)
 	fmt.Println(string(resJ2))
+
+	fb := []Bar{
+		Bar{
+			A: "a",
+			B: "b",
+		},
+		Bar{
+			A: "a1",
+			B: "b1",
+		},
+	}
+	_ = &Foo{
+		Fb: fb,
+	}
+	resJ3, _ := json.Marshal(&fb)
+	fmt.Println(string(resJ3))
 
 	a := 5
 	switch {

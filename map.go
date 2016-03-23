@@ -12,13 +12,18 @@ func main() {
 	m["k1"] = 1
 	m["k2"] = 1
 	fmt.Println(m)
-	delete(m, "k2")
+	//	delete(m, "k2")
 	fmt.Println(m)
 
 	// test
 	if value, ok := m["k2"]; ok {
 		fmt.Println(value, ok)
 	}
+
+	for key := range m {
+		fmt.Println("Key:", key)
+	}
+
 	if v1, o1 := m["k3"]; o1 {
 
 	} else {
@@ -26,11 +31,11 @@ func main() {
 	}
 
 	// map
-	m := map[string]Color{
-		"Red":   Color{255, 0, 0},
-		"Green": Color{0, 255, 0},
-		"Blue":  Color{0, 0, 255},
-	}
-	key, value := m["PeachPuff"]
+	//	m = map[string]Color{
+	//		"Red":   Color{255, 0, 0},
+	//		"Green": Color{0, 255, 0},
+	//		"Blue":  Color{0, 0, 255},
+	//	}
+	//	key, value := m["PeachPuff"]
 
 }

@@ -1,37 +1,67 @@
 package main
 
-import "fmt"
-import "time"
-import "reflect"
+import (
+	"fmt"
+	"sync"
+	"time"
+)
 
 type message struct {
-  message string
-  id uint64
+	message string
+	id      int
 }
 
 func (msg *message) ShowMessage() {
-  fmt.Println(msg.message)
+	fmt.Println("message body:", msg.message)
 }
 
 func (msg *message) ShowId() {
-  fmt.Println(msg.id)
+	fmt.Println("message id:", msg.id)
+}
+
+func SendMessage(msgq chan message, msg string, id int) {
+	msgTmp := message{
+		message: msg,
+		id:      id,
+	}
+	fmt.Println("SendMessage id:", id)
+	msgq <- msgTmp
 }
 
 func main() {
-  msg := make(chan message, 1)
+	//wg := new(sync.WaitGroup)
+	var wg sync.WaitGroup
 
-  msgTemplate := &message{
-    message : "hello jone",
-    id : 123,
-  }
+	msg := make(chan message, 2)
 
-  msg<-*msgTemplate
-  close(msg)
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(wg sync.WaitGroup, msg chan message, i int) {
+			SendMessage(msg, "shine", i)
+			fmt.Println("sleep 3 seconds")
+			time.Sleep(time.Second * 3)
+			defer func() {
+				wg.Done()
+			}()
+		}(wg, msg, i)
+	}
 
-  tmp := <-msg
-  tmp.ShowMessage()
-  fmt.Println("msg type ", reflect.TypeOf(tmp))
+	close(msg)
 
-  time.Sleep(time.Second*4)
+	wg.Add(1)
+	go func(wg sync.WaitGroup, msg chan message) {
+		defer func() {
+			wg.Done()
+		}()
+		for i := 0; i < 10; i++ {
+			for tmp := range msg {
+				//tmp.ShowMessage()
+				fmt.Println("Now:", time.Now())
+				tmp.ShowId()
+				//fmt.Println("msg type ", reflect.TypeOf(tmp))
+			}
+		}
+	}(wg, msg)
+
+	wg.Wait()
 }
-

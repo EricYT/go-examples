@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-var msgNums = 6000
+var msgNums = 600
 var taskChanNums = msgNums
-var workerNums = 7000
+var workerNums = 1
 
 func init() {
 	log.Errorln("Cpu numbers:", runtime.NumCPU())
@@ -37,11 +37,13 @@ func NewTaskQueue() *TaskQueue {
 func (tq *TaskQueue) Serve(wg *sync.WaitGroup) {
 	wg.Done()
 	for tmp := range tq.taskChan {
-		log.Errorln("(3) get task used:", time.Now().Sub(*tmp.time))
-		//now := time.Now()
-		//worker := tq.getWorker()
-		//log.Errorln("(2) get worker used:", time.Now().Sub(now))
-		//worker.WakeUp(task)
+		go func(t *time.Time) {
+			log.Errorln("(3) get task used:", time.Now().Sub(*t))
+			//now := time.Now()
+			//worker := tq.getWorker()
+			//log.Errorln("(2) get worker used:", time.Now().Sub(now))
+			//worker.WakeUp(task)
+		}(tmp.time)
 	}
 }
 
@@ -136,7 +138,7 @@ func main() {
 
 	log.Errorln("send message")
 	for i := 0; i < msgNums; i++ {
-		go func(index int, tq_ *TaskQueue) {
+		func(index int, tq_ *TaskQueue) {
 			task := NewTask(index)
 			tq_.AddTask(task)
 		}(i, tq)

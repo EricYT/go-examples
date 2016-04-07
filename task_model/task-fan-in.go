@@ -10,8 +10,8 @@ import (
 )
 
 var msgNums = 6000
-var taskChanNums = msgNums
-var workerNums = 7000
+var taskChanNums = 1024
+var workerNums = 100
 
 func init() {
 	log.Errorln("Cpu numbers:", runtime.NumCPU())
@@ -36,27 +36,24 @@ func NewTaskQueue() *TaskQueue {
 
 func (tq *TaskQueue) Serve(wg *sync.WaitGroup) {
 	wg.Done()
-	time.Sleep(time.Second * 3)
-	var count = 0
-	var start *time.Time
+	var count int
+	var startTime *time.Time
 	for {
-		if count == msgNums {
-			log.Errorln("(4) total read timeused:", time.Now().Sub(*start))
-			return
-		} else {
+		select {
+		case task := <-tq.taskChan:
 			count++
+			if count == msgNums {
+				log.Errorln("Total usedtime:", time.Now().Sub(*startTime))
+			}
+			if startTime == nil {
+				tmp := time.Now()
+				startTime = &tmp
+			}
+			go func(t *Task) {
+				worker := tq.getWorker()
+				worker.WakeUp(task)
+			}(task)
 		}
-		if start == nil {
-			tmp := time.Now()
-			start = &tmp
-		}
-		tmp := <-tq.taskChan
-		log.Errorln("(3) get task used:", time.Now().Sub(*tmp.time))
-		tmp.Void()
-		//now := time.Now()
-		//worker := tq.getWorker()
-		//log.Errorln("(2) get worker used:", time.Now().Sub(now))
-		//worker.WakeUp(task)
 	}
 }
 
@@ -92,18 +89,16 @@ func NewWorker(id int, tq *TaskQueue) *Worker {
 
 func (w *Worker) Serve(wg *sync.WaitGroup) {
 	wg.Done()
-	w.Register()
 	for {
+		w.Register()
 		select {
 		case task := <-w.task:
 			w.Run(task)
-			w.Register()
 		}
 	}
 }
 
 func (w *Worker) Run(t *Task) {
-	log.Errorln("(1) worker get job timeused:", time.Now().Sub(*t.time))
 }
 
 func (w *Worker) WakeUp(t *Task) {
@@ -122,10 +117,10 @@ type Task struct {
 func (t Task) Void() {}
 
 func NewTask(index int) *Task {
-	now := time.Now()
+	//	now := time.Now()
 	return &Task{
-		id:   index,
-		time: &now,
+		id: index,
+		//		time: &now,
 	}
 }
 
@@ -142,25 +137,20 @@ func main() {
 	log.Errorln("start workers")
 	wg.Add(workerNums)
 	for i := 0; i < workerNums; i++ {
-		go func() {
+		go func(i int, tq *TaskQueue, wg *sync.WaitGroup) {
 			worker := NewWorker(i, tq)
-			worker.Serve(&wg)
-		}()
+			worker.Serve(wg)
+		}(i, tq, &wg)
 	}
 	wg.Wait()
 
 	log.Errorln("send message")
-	wg.Add(msgNums)
-	start := time.Now()
 	for i := 0; i < msgNums; i++ {
 		go func() {
 			task := NewTask(i)
 			tq.AddTask(task)
-			wg.Done()
 		}()
 	}
-	wg.Wait()
-	log.Errorln("(4) write total usedtime:", time.Now().Sub(start))
 
 	time.Sleep(time.Second * 60)
 }

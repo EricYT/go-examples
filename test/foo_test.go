@@ -2,6 +2,9 @@ package foo
 
 import (
 	"testing"
+	"time"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 func Test_Division_1(t *testing.T) {
@@ -18,12 +21,22 @@ func TestaDiv(t *testing.T) {
 	//t.Error("not pass anyway")
 }
 
-func TestDiv(t *testing.T) {
-	t.Error("Test function name")
-}
-
 func Benchmark_Division(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		Division(4, 5)
+	}
+}
+
+func Benchmark_now(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		pipe := make(chan int64, 1)
+		test := &Test{}
+		go func() {
+			log.WithFields(log.Fields{
+				"module": "xxx",
+			}).Debugln(time.Now())
+			pipe <- test.Call()
+		}()
+		<-pipe
 	}
 }

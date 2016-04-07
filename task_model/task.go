@@ -5,20 +5,26 @@ import (
 	"github.com/oleiade/lane"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-var buffNums = 7000
-var workerNums = 5000
-var msgNums = 6000
+var buffNums = 1024
+var workerNums = 20
+var msgNums = 10000
+
+// count
+var count int32
+var start *time.Time
 
 func init() {
 	log.Errorln("Cpu numbers:", runtime.NumCPU())
 	runtime.GOMAXPROCS(runtime.NumCPU())
+	log.SetLevel(log.ErrorLevel)
 }
 
 type TaskQueue struct {
-	signal chan *time.Time
+	signal chan int
 
 	queue *lane.PQueue
 }
@@ -26,24 +32,21 @@ type TaskQueue struct {
 func NewTaskQueue() *TaskQueue {
 	return &TaskQueue{
 		queue:  lane.NewPQueue(lane.MINPQ),
-		signal: make(chan *time.Time, buffNums),
+		signal: make(chan int, buffNums),
 	}
 }
 
 func (tq *TaskQueue) AddTask(index int) {
 	tq.queue.Push(index, 1)
-	t := time.Now()
-	tq.signal <- &t
+	tq.signal <- index
 }
 
 func (tq *TaskQueue) PopTask() interface{} {
-	//	start := time.Now()
 	value, _ := tq.queue.Pop()
-	//	log.Errorln("Task pop timeused:", time.Now().Sub(start))
 	return value
 }
 
-func (tq *TaskQueue) Wait() <-chan *time.Time {
+func (tq *TaskQueue) Wait() <-chan int {
 	return tq.signal
 }
 
@@ -63,14 +66,17 @@ func (w *Worker) Run(wg *sync.WaitGroup) {
 	wg.Done()
 	for {
 		select {
-		case t := <-w.tq.Wait():
-			//w.tq.PopTask()
-			timeused := time.Now().Sub(*t)
-			go func() {
-				time.Sleep(timeused)
-				log.Errorln("Receive timeused:", timeused)
-			}()
-			//time.Sleep(time.Millisecond * 1)
+		case <-w.tq.Wait():
+			value := atomic.AddInt32(&count, 1)
+			log.Debugln("number:", value)
+			if value == int32(msgNums) {
+				log.Errorln("total timeused:", time.Now().Sub(*start))
+				return
+			} else if value == 1 {
+				tmp := time.Now()
+				start = &tmp
+			}
+			w.tq.PopTask()
 		}
 	}
 }
@@ -89,7 +95,9 @@ func main() {
 	wg.Wait()
 
 	for i := 0; i < msgNums; i++ {
-		go tq.AddTask(i)
+		go func(tq *TaskQueue) {
+			tq.AddTask(i)
+		}(tq)
 	}
 
 	time.Sleep(time.Second * 60)

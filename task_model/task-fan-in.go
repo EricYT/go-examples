@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-var msgNums = 6000
+var msgNums = 10000
 var taskChanNums = 1024
-var workerNums = 100
+var workerNums = 1000
 
 func init() {
 	log.Errorln("Cpu numbers:", runtime.NumCPU())

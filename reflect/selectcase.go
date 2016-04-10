@@ -22,6 +22,7 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
+		wg.Done()
 		for {
 			chosen, value, ok := reflect.Select(cases)
 			if !ok {
@@ -33,7 +34,7 @@ func main() {
 			fmt.Println("Get msg from select cases:", msg)
 		}
 	}()
-	time.Sleep(time.Second * 1)
+	wg.Wait()
 
 	chans[2] <- "ping"
 

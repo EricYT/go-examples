@@ -3,6 +3,7 @@ package main
 import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/oleiade/lane"
+	"github.com/pkg/profile"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -82,6 +83,8 @@ func (w *Worker) Run(wg *sync.WaitGroup) {
 }
 
 func main() {
+	//defer profile.Start(profile.BlockProfile).Stop()
+	defer profile.Start(profile.CPUProfile).Stop()
 	log.Errorln("Task queue start testing")
 
 	tq := NewTaskQueue()
@@ -100,5 +103,5 @@ func main() {
 		}(tq)
 	}
 
-	time.Sleep(time.Second * 60)
+	time.Sleep(time.Second * 2)
 }

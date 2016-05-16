@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"reflect"
+)
 import "encoding/json"
 
 type Response1 struct {
@@ -22,6 +25,10 @@ type Foo struct {
 type Bar struct {
 	A string `json:"a"`
 	B string `json:"b"`
+}
+
+type Test struct {
+	M map[string]interface{} `json:"m"`
 }
 
 func main() {
@@ -62,6 +69,24 @@ func main() {
 	}
 	resJ3, _ := json.Marshal(&fb)
 	fmt.Println(string(resJ3))
+
+	m := make(map[string]interface{})
+	m["a"] = fb
+	m["b"] = "yyyy"
+
+	t := Test{
+		M: m,
+	}
+
+	r, _ := json.Marshal(&t)
+	fmt.Println("t:", string(r))
+
+	var t1 = Test{}
+	json.Unmarshal(r, &t1)
+	fmt.Printf("t Unmarshal:%+v\n", t1)
+	fmt.Println("t type:", reflect.TypeOf(t1.M["a"]))
+	b, _ := t.M["a"].([]Bar)
+	fmt.Printf("b: %+v\n", b[1].A)
 
 	a := 5
 	switch {

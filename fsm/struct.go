@@ -24,6 +24,7 @@ func NewDoor(to string) *Door {
 		},
 		fsm.Callbacks{
 			"enter_state": func(e *fsm.Event) { d.enterState(e) },
+			"close":       close,
 		},
 	)
 
@@ -32,6 +33,10 @@ func NewDoor(to string) *Door {
 
 func (d *Door) enterState(e *fsm.Event) {
 	fmt.Printf("The door to %s is %s\n", d.To, e.Dst)
+}
+
+func close(e *fsm.Event) {
+	fmt.Println("colse call")
 }
 
 func main() {

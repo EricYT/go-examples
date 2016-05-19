@@ -6,6 +6,10 @@ import (
 	"github.com/codegangsta/inject"
 )
 
+type Voider interface {
+	Void()
+}
+
 type SpecialString interface{}
 
 type MyStruct struct {
@@ -13,6 +17,10 @@ type MyStruct struct {
 	Value SpecialString `inject:"value"`
 	Index int64
 }
+
+func (m MyStruct) Void() {}
+
+type NoMyStruct struct{}
 
 func main() {
 	injector := inject.New()
@@ -23,14 +31,18 @@ func main() {
 
 	fmt.Printf("injector is %+v\n", injector)
 
-	var ms = MyStruct{}
-	err := injector.Apply(&ms)
-	if err != nil {
-		fmt.Println("injector apply error:", err)
+	var void interface{} = MyStruct{}
+	//var void interface{} = NoMyStruct{}
+
+	if _, ok := void.(Voider); !ok {
+		panic("void can not convert to Voider")
+	} else {
+		err := injector.Apply(&void)
+		if err != nil {
+			fmt.Println("injector apply error:", err)
+			return
+		}
+		fmt.Printf("MyStruct void is %+v\n", void)
 		return
 	}
-
-	fmt.Printf("MyStruct is %+v\n", ms)
-
-	return
 }

@@ -11,9 +11,9 @@ func main() {
 	m := make(map[string]int)
 	m["k1"] = 1
 	m["k2"] = 1
-	fmt.Println(m)
-	//	delete(m, "k2")
-	fmt.Println(m)
+	fmt.Println("map before delete ", m)
+	delete(m, "k3")
+	fmt.Println("map delete ", m)
 
 	// test
 	if value, ok := m["k2"]; ok {

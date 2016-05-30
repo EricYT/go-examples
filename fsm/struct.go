@@ -23,8 +23,12 @@ func NewDoor(to string) *Door {
 			{Name: "close", Src: []string{"open"}, Dst: "closed"},
 		},
 		fsm.Callbacks{
-			"enter_state": func(e *fsm.Event) { d.enterState(e) },
-			"close":       close,
+			//			"enter_state":  func(e *fsm.Event) { d.enterState(e) },
+			"before_close": func(e *fsm.Event) { fmt.Println("before closed") },
+			"enter_closed": func(e *fsm.Event) { d.enterClose(e) },
+			//"close":       close,
+			"leave_closed": func(e *fsm.Event) { fmt.Println("leave closed") },
+			"after_close":  func(e *fsm.Event) { d.afterClose(e) },
 		},
 	)
 
@@ -33,6 +37,14 @@ func NewDoor(to string) *Door {
 
 func (d *Door) enterState(e *fsm.Event) {
 	fmt.Printf("The door to %s is %s\n", d.To, e.Dst)
+}
+
+func (d *Door) afterClose(e *fsm.Event) {
+	fmt.Printf("after the door to %s is %s\n", d.To, e.Dst)
+}
+
+func (d *Door) enterClose(e *fsm.Event) {
+	fmt.Printf("enter the door to %s is %s\n", d.To, e.Dst)
 }
 
 func close(e *fsm.Event) {

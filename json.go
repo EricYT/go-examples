@@ -38,7 +38,7 @@ func main() {
 
 	mapA := map[string]int{"abc": 1, "def": 2}
 	mapC, _ := json.Marshal(mapA)
-	fmt.Println(string(mapC))
+	fmt.Println("map:", string(mapC))
 
 	res1 := &Response1{
 		Page:   1,

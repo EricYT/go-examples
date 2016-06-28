@@ -1,10 +1,11 @@
 package main
 
 import (
-	gomhttp "github.com/rakyll/gom/http"
 	"log"
 	"net/http"
 	"sync"
+
+	gomhttp "github.com/rakyll/gom/http"
 )
 
 func main() {
@@ -15,8 +16,8 @@ func main() {
 
 	wg.Add(10)
 	for i := 0; i < 10; i++ {
-		wg.Done()
 		go func() {
+			wg.Done()
 			var count int64
 			for i := 0; i < 10000000000; i++ {
 				count++

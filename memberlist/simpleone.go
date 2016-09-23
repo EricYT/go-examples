@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/hashicorp/memberlist"
 )
@@ -17,16 +18,19 @@ func main() {
 	}
 
 	// Join an existing cluster by specifying at least one known member.
-	n, err := list.Join([]string{"1.2.3.4"})
+	n, err := list.Join([]string{"10.100.212.222"})
 	if err != nil {
 		panic("Failed to join cluster: " + err.Error())
 	}
 
 	fmt.Println("join result:", n)
 
-	// Ask for members of the cluster
-	for _, member := range list.Members() {
-		fmt.Printf("Member: %s %s\n", member.Name, member.Addr)
+	for {
+		// Ask for members of the cluster
+		for _, member := range list.Members() {
+			fmt.Printf("Member: %s %s\n", member.Name, member.Addr)
+		}
+		time.Sleep(time.Second * 2)
 	}
 
 	// Continue doing whatever you need, memberlist will maintain membership

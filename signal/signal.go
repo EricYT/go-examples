@@ -24,13 +24,14 @@ func main() {
 	fmt.Println("Wait a kill signal")
 
 	interrupt := make(chan os.Signal, 1)
-	//signal.Notify(interrupt, os.Interrupt)
+	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	//signal.Notify(interrupt, syscall.SIGTERM)
-	signal.Notify(interrupt, syscall.SIGHUP)
+	//signal.Notify(interrupt, syscall.SIGHUP)
 
 	select {
-	case <-interrupt:
+	case s := <-interrupt:
 		log.Println("get kill signal:", time.Now())
+		log.Printf("get singal:%+v", s)
 		time.Sleep(time.Second * 10)
 		log.Println("stop time:", time.Now())
 	}

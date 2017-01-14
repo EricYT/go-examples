@@ -30,4 +30,13 @@ func main() {
 	if foo, ok := err.(*ErrorFoo); ok {
 		fmt.Println("error message:", foo)
 	}
+
+	switch err.(type) {
+	case *ErrorFoo:
+		fmt.Println("this is a foo error")
+	case *ErrorBar:
+		fmt.Println("this is a bar error")
+	default:
+		fmt.Println("what the hell is this")
+	}
 }

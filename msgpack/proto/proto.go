@@ -4,11 +4,7 @@ package proto
 
 // test map type
 type Foo struct {
-	Actions map[string]Runer `msg:"action"`
-}
-
-type Runer interface {
-	Run()
+	//	Actions map[string]Runer `msg:"action"`
 }
 
 type Oper1 struct {
@@ -16,11 +12,22 @@ type Oper1 struct {
 	Value string `msg:"value"`
 }
 
-func (o Oper1) Run() {}
-
 type Oper2 struct {
 	Key   string `msg:"key"`
 	Value string `msg:"value"`
 }
 
-func (o Oper2) Run() {}
+// test struct pointer
+type FooWithPointer struct {
+	Key   string `msg:"key"`
+	*Bar1 `msg:"bar1"`
+	*Bar2 `msg:"bar2"`
+}
+
+type Bar1 struct {
+	Value string `msg:"value"`
+}
+
+type Bar2 struct {
+	Value string `msg:"value"`
+}

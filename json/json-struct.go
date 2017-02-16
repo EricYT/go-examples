@@ -16,10 +16,14 @@ type Action struct {
 }
 
 type Data struct {
-	Disks          *string `json:"disks,omited"`
-	ExtentId       *string `json:"extent_id,omited"`
-	ExtentGroupId  *string `json:"extent_group_id,omited"`
-	OffsetAtExtent *int64  `json:"offset_at_extent,omited"`
+	// if field is empty that will be omited
+	Disks          string `json:"disks,omitempty"`
+	ExtentId       string `json:"extent_id,omitempty"`
+	ExtentGroupId  string `json:"extent_group_id,omitempty"`
+	OffsetAtExtent int64  `json:"offset_at_extent,omitempty"`
+
+	// this will not omit the empty fields
+	Crc []byte `json:"crc"`
 }
 
 func main() {
@@ -32,4 +36,10 @@ func main() {
 		panic(err)
 	}
 	fmt.Printf("json Unmarshal is:%+v\n", action)
+
+	output, err := json.Marshal(&action)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("json marshal is: %s\n", string(output))
 }

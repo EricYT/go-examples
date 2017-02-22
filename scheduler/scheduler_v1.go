@@ -21,6 +21,9 @@ type Scheduler interface {
 	// Finished returns the number of finished jobs
 	Finished() int
 
+	// WaitFinish waits until at least n job are finished and all pending jobs are finished
+	WaitFinish(n int)
+
 	// Stop stop the scheduler
 	Stop()
 }
@@ -37,7 +40,8 @@ type fifo struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	donec chan struct{}
+	finishCond *sync.Cond
+	donec      chan struct{}
 }
 
 func NewFIFOScheduler(currence int) Scheduler {
@@ -46,6 +50,7 @@ func NewFIFOScheduler(currence int) Scheduler {
 		resume:   make(chan struct{}, currence),
 		donec:    make(chan struct{}, 1),
 	}
+	f.finishCond = sync.NewCond(&f.mu)
 	f.ctx, f.cancel = context.WithCancel(context.Background())
 	go f.run()
 	return f
@@ -84,6 +89,14 @@ func (f *fifo) Finished() int {
 	return f.finished
 }
 
+func (f *fifo) WaitFinish(n int) {
+	f.finishCond.L.Lock()
+	for f.finished < n || len(f.pendings) != 0 {
+		f.finishCond.Wait()
+	}
+	f.finishCond.L.Unlock()
+}
+
 func (f *fifo) Stop() {
 	f.mu.Lock()
 	f.cancel()
@@ -108,9 +121,10 @@ func (f *fifo) run() {
 				f.scheduled++
 				go func(j Job) {
 					defer func() {
-						f.mu.Lock()
+						f.finishCond.L.Lock()
 						f.finished++
-						f.mu.Unlock()
+						f.finishCond.Broadcast()
+						f.finishCond.L.Unlock()
 						select {
 						case f.resume <- struct{}{}:
 						default:

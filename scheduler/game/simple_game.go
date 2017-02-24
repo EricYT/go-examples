@@ -47,7 +47,7 @@ func (s *simpleGame) Run() error {
 		return err
 	case <-s.tomb.Dying():
 		slog.Debugf("simple game %s was killed. now: %s", s.id, time.Now())
-		close(signal)
+		signal <- nil
 		return nil
 	}
 }

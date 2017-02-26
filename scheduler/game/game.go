@@ -2,6 +2,7 @@ package game
 
 import (
 	"errors"
+	"reflect"
 	"sync"
 	"time"
 
@@ -18,8 +19,9 @@ var glog = log.WithFields(log.Fields{
 
 // errors
 var (
-	ErrorGameDirectorNotFound       error = errors.New("game director: game not found")
-	ErrorGameDirectorScheduleInvoke error = errors.New("game director: game invoke should return Game")
+	ErrorGameDirectorNotFound              error = errors.New("game director: game not found")
+	ErrorGameDirectorScheduleInvoke        error = errors.New("game director: game invoke should return Game")
+	ErrorGameDirectorScheduleWrongArgument error = errors.New("game director: game schedule argument must be function pointer that returns a Game interface")
 )
 
 // game scheduler
@@ -90,15 +92,17 @@ func (g *gameDirector) Stop() {
 }
 
 func (g *gameDirector) Schedule(fn interface{}) (Game, error) {
+	// schedule argument must be a function that returns a Game
+	typ := reflect.TypeOf(fn)
+	if (typ.Kind() != reflect.Func) || (typ.NumOut() != 1) {
+		return nil, ErrorGameDirectorScheduleWrongArgument
+	}
 	res, err := g.injector.Invoke(fn)
 	if err != nil {
 		log.Errorf("game director schedule game generate Invoke error: %s", err)
 		return nil, err
 	}
-	if len(res) != 1 {
-		log.Errorf("game director schedule game generate Invoke should return just one Game interface but %d", len(res))
-		return nil, ErrorGameDirectorScheduleInvoke
-	}
+
 	var game Game
 	var ok bool
 	if game, ok = res[0].Interface().(Game); !ok {
@@ -213,4 +217,9 @@ func isFalt(err error) bool {
 
 func moreImportant(err0, err1 error) bool {
 	return false
+}
+
+func isFunctionPtr(fn interface{}) bool {
+	typ := reflect.TypeOf(fn)
+	return typ.Kind() == reflect.Func
 }

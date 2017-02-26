@@ -7,6 +7,8 @@ import (
 
 	"github.com/EricYT/go-examples/scheduler/runner"
 	log "github.com/Sirupsen/logrus"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/go-macaron/inject"
 
 	tomb "gopkg.in/tomb.v1"
 )
@@ -17,13 +19,14 @@ var glog = log.WithFields(log.Fields{
 
 // errors
 var (
-	ErrorGameDirectorNotFound error = errors.New("game director: game not found")
+	ErrorGameDirectorNotFound       error = errors.New("game director: game not found")
+	ErrorGameDirectorScheduleInvoke error = errors.New("game director: game invoke should return Game")
 )
 
 // game scheduler
 type GameDirector interface {
 	// Schedule schedule the game to director
-	Schedule(g Game)
+	Schedule(gameFunc interface{}) error
 	// Cancel stop the running game
 	Cancel(id string) error
 	// Pending return the number of pending games in director
@@ -48,21 +51,32 @@ type Game interface {
 type gameDirector struct {
 	tomb *tomb.Tomb
 
-	mu      sync.Mutex
-	pending []Game
-	running map[string]Game
-	runner  runner.Runner
-	resume  chan struct{}
+	cfg Config
+	mu  sync.Mutex
+
+	injector inject.Injector
+	pending  []Game
+	running  map[string]Game
+	runner   runner.Runner
+	resume   chan struct{}
 }
 
-func NewGameDirector(currence int) GameDirector {
+func NewGameDirector(currence int, cfg *Config) GameDirector {
 	g := &gameDirector{
 		tomb:    new(tomb.Tomb),
+		cfg:     *cfg,
 		pending: []Game{},
 		running: make(map[string]Game),
 		resume:  make(chan struct{}, currence),
 	}
 	g.runner = runner.NewRunner(isFalt, moreImportant, time.Second*30)
+
+	// game config injector
+	injector := inject.New()
+	injector.Map(&g.cfg)
+	g.injector = injector
+	spew.Dump(injector)
+
 	return g
 }
 
@@ -77,7 +91,23 @@ func (g *gameDirector) Stop() {
 	g.tomb.Kill(nil)
 }
 
-func (g *gameDirector) Schedule(game Game) {
+func (g *gameDirector) Schedule(fn interface{}) error {
+	res, err := g.injector.Invoke(fn)
+	if err != nil {
+		log.Errorf("game director schedule game generate Invoke error: %s", err)
+		return err
+	}
+	if len(res) != 1 {
+		log.Errorf("game director schedule game generate Invoke should return just one Game interface but %d", len(res))
+		return ErrorGameDirectorScheduleInvoke
+	}
+	var game Game
+	var ok bool
+	if game, ok = res[0].Interface().(Game); !ok {
+		log.Errorf("game director schedule game generate Invoke should return just Game interface but %#v", res)
+		return ErrorGameDirectorScheduleInvoke
+	}
+
 	g.mu.Lock()
 	g.pending = append(g.pending, game)
 	g.mu.Unlock()
@@ -87,6 +117,7 @@ func (g *gameDirector) Schedule(game Game) {
 	case g.resume <- struct{}{}:
 	default:
 	}
+	return nil
 }
 
 func (g *gameDirector) Pending() int {

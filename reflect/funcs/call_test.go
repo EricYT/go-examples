@@ -26,6 +26,10 @@ func TestFunctionsDirector(t *testing.T) {
 
 	fd.Registe(Sum)
 
+	if err := fd.Registe(3); err == nil {
+		t.Errorf("function director registe type is wrong should not return nil")
+	}
+
 	// use full name spcify the package function was contained
 	_, err := fd.Call("github.com/EricYT/go-examples/reflect/funcs.SayHi")
 	if err != nil {

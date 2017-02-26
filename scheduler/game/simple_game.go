@@ -18,13 +18,17 @@ type simpleGame struct {
 	tomb *tomb.Tomb
 	id   string
 	f    StartFunc
+	cfg  *Config `inject`
 }
 
-func NewSimpleGame(id string, f StartFunc) Game {
-	return &simpleGame{
-		tomb: new(tomb.Tomb),
-		id:   id,
-		f:    f,
+func NewSimpleGame(id string, f StartFunc) interface{} {
+	return func(cfg *Config) *simpleGame {
+		return &simpleGame{
+			tomb: new(tomb.Tomb),
+			id:   id,
+			f:    f,
+			cfg:  cfg,
+		}
 	}
 }
 
@@ -39,7 +43,7 @@ func (s *simpleGame) Kill() {
 }
 
 func (s *simpleGame) Run() error {
-	slog.Debugf("simple game %s run. now: %s", s.id, time.Now())
+	slog.Debugf("simple game %s run. config: %s now: %s", s.id, *s.cfg.Name, time.Now())
 	var signal chan error = s.f()
 	select {
 	case err := <-signal:

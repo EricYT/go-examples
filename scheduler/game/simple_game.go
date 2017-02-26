@@ -22,6 +22,7 @@ type simpleGame struct {
 }
 
 func NewSimpleGame(id string, f StartFunc) interface{} {
+	// return a function that can be injectd
 	return func(cfg *Config) *simpleGame {
 		return &simpleGame{
 			tomb: new(tomb.Tomb),

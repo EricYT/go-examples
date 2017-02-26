@@ -43,24 +43,25 @@ func TestGameDirector(t *testing.T) {
 		games = append(games, gfunc)
 	}
 
+	var gs []Game
 	for _, g := range games {
 		wg.Add(1)
-		err := gd.Schedule(g)
+		game, err := gd.Schedule(g)
 		if err != nil {
 			t.Errorf("game test schedule game error: %s", err)
 		}
+		gs = append(gs, game)
 	}
 
-	//time.Sleep(time.Second * 1)
-	//for _, g := range games {
-	//	if g.Id() == "simpleGame#2" || g.Id() == "simpleGame#7" {
-	//		err := gd.Cancel(g.Id())
-	//		if err != nil {
-	//			continue
-	//		}
-	//		wg.Done()
-	//	}
-	//}
+	for _, g := range gs {
+		if g.Id() == "simpleGame#2" || g.Id() == "simpleGame#7" {
+			err := gd.Cancel(g.Id())
+			if err != nil {
+				continue
+			}
+			wg.Done()
+		}
+	}
 
 	wg.Wait()
 	time.Sleep(time.Second)

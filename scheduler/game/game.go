@@ -7,7 +7,6 @@ import (
 
 	"github.com/EricYT/go-examples/scheduler/runner"
 	log "github.com/Sirupsen/logrus"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-macaron/inject"
 
 	tomb "gopkg.in/tomb.v1"
@@ -26,7 +25,7 @@ var (
 // game scheduler
 type GameDirector interface {
 	// Schedule schedule the game to director
-	Schedule(gameFunc interface{}) error
+	Schedule(gameFunc interface{}) (Game, error)
 	// Cancel stop the running game
 	Cancel(id string) error
 	// Pending return the number of pending games in director
@@ -71,11 +70,10 @@ func NewGameDirector(currence int, cfg *Config) GameDirector {
 	}
 	g.runner = runner.NewRunner(isFalt, moreImportant, time.Second*30)
 
-	// game config injector
+	// game config injector. Inject what you want to the Game entry
 	injector := inject.New()
 	injector.Map(&g.cfg)
 	g.injector = injector
-	spew.Dump(injector)
 
 	return g
 }
@@ -91,21 +89,21 @@ func (g *gameDirector) Stop() {
 	g.tomb.Kill(nil)
 }
 
-func (g *gameDirector) Schedule(fn interface{}) error {
+func (g *gameDirector) Schedule(fn interface{}) (Game, error) {
 	res, err := g.injector.Invoke(fn)
 	if err != nil {
 		log.Errorf("game director schedule game generate Invoke error: %s", err)
-		return err
+		return nil, err
 	}
 	if len(res) != 1 {
 		log.Errorf("game director schedule game generate Invoke should return just one Game interface but %d", len(res))
-		return ErrorGameDirectorScheduleInvoke
+		return nil, ErrorGameDirectorScheduleInvoke
 	}
 	var game Game
 	var ok bool
 	if game, ok = res[0].Interface().(Game); !ok {
 		log.Errorf("game director schedule game generate Invoke should return just Game interface but %#v", res)
-		return ErrorGameDirectorScheduleInvoke
+		return nil, ErrorGameDirectorScheduleInvoke
 	}
 
 	g.mu.Lock()
@@ -117,7 +115,7 @@ func (g *gameDirector) Schedule(fn interface{}) error {
 	case g.resume <- struct{}{}:
 	default:
 	}
-	return nil
+	return game, nil
 }
 
 func (g *gameDirector) Pending() int {

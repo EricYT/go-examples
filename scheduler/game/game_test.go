@@ -17,7 +17,7 @@ func TestGameDirector(t *testing.T) {
 	t.Logf("game main go ...")
 	name := "test_game_director"
 	cfg := Config{Name: &name}
-	gd := NewGameDirector(2, &cfg)
+	gd := NewGameDirector(2, 100, &cfg)
 	gd.Start()
 	defer gd.Stop()
 

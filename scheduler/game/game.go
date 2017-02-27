@@ -8,7 +8,7 @@ import (
 
 	"github.com/EricYT/go-examples/scheduler/runner"
 	log "github.com/Sirupsen/logrus"
-	"github.com/go-macaron/inject"
+	"github.com/codegangsta/inject"
 
 	tomb "gopkg.in/tomb.v1"
 )
@@ -20,6 +20,7 @@ var glog = log.WithFields(log.Fields{
 // errors
 var (
 	ErrorGameDirectorNotFound              error = errors.New("game director: game not found")
+	ErrorGameDirectorOverload              error = errors.New("game director: pending games overload")
 	ErrorGameDirectorScheduleInvoke        error = errors.New("game director: game invoke should return Game")
 	ErrorGameDirectorScheduleWrongArgument error = errors.New("game director: game schedule argument must be function pointer that returns a Game interface")
 )
@@ -52,8 +53,9 @@ type Game interface {
 type gameDirector struct {
 	tomb *tomb.Tomb
 
-	cfg Config
-	mu  sync.Mutex
+	cfg      Config
+	mu       sync.Mutex
+	capacity int
 
 	injector inject.Injector
 	pending  []Game
@@ -62,13 +64,14 @@ type gameDirector struct {
 	resume   chan struct{}
 }
 
-func NewGameDirector(currence int, cfg *Config) GameDirector {
+func NewGameDirector(currence, capacity int, cfg *Config) GameDirector {
 	g := &gameDirector{
-		tomb:    new(tomb.Tomb),
-		cfg:     *cfg,
-		pending: []Game{},
-		running: make(map[string]Game),
-		resume:  make(chan struct{}, currence),
+		tomb:     new(tomb.Tomb),
+		cfg:      *cfg,
+		capacity: capacity,
+		pending:  []Game{},
+		running:  make(map[string]Game),
+		resume:   make(chan struct{}, currence),
 	}
 	g.runner = runner.NewRunner(isFalt, moreImportant, time.Second*30)
 
@@ -111,6 +114,10 @@ func (g *gameDirector) Schedule(fn interface{}) (Game, error) {
 	}
 
 	g.mu.Lock()
+	if len(g.pending) > g.capacity {
+		log.Errorf("game director schedule pending games overload")
+		return nil, ErrorGameDirectorOverload
+	}
 	g.pending = append(g.pending, game)
 	g.mu.Unlock()
 

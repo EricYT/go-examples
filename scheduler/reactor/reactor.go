@@ -79,10 +79,6 @@ func (r *reactor) loop() error {
 	var next chan struct{} = r.closed
 	var out chan struct{}
 	concurrentCh := make(chan struct{}, r.concurrent)
-	var total int64
-	defer func(total *int64) {
-		log.Printf("reactor total count: %d", *total)
-	}(&total)
 
 	for {
 		select {
@@ -109,7 +105,6 @@ func (r *reactor) loop() error {
 			next = r.closed
 		}
 		if nu != nil {
-			total++
 			log.Printf("reactor: prepare to execute nuclear: %+v", nu)
 			go func(n *nuclear) {
 				defer func() {
@@ -118,7 +113,7 @@ func (r *reactor) loop() error {
 					default:
 					}
 				}()
-				n.Run()
+				n.Reaction()
 			}(nu)
 			continue
 		}

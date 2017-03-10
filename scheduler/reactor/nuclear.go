@@ -9,7 +9,7 @@ import (
 )
 
 type NuclearGenerator interface {
-	Run() ([]*nuclear, error)
+	Next() ([]*nuclear, error)
 }
 
 type NuclearProductor struct {
@@ -80,7 +80,7 @@ func (n *NuclearProductor) productNuclear() {
 					return
 				default:
 				}
-				nuclears, err := n.generator.Run()
+				nuclears, err := n.generator.Next()
 				if err != nil {
 					log.Printf("nuclear: nuclear productor generate nuclear error: %s", err)
 					return
@@ -90,7 +90,7 @@ func (n *NuclearProductor) productNuclear() {
 						err = n.reactor.AddNuclear(nuclear)
 						switch err {
 						case ErrorReactorCapacity:
-							log.Printf("nuclear+: add nuclear error")
+							log.Printf("nuclear: add nuclear error")
 							return
 						default:
 						}
@@ -118,9 +118,9 @@ func NewNuclear(id string, priority int) *nuclear {
 	}
 }
 
-func (n *nuclear) Run() {
-	time.Sleep(time.Second)
-	log.Printf("nuclear: %s run over: %s", n.id, time.Now())
+func (n *nuclear) Reaction() {
+	//	time.Sleep(time.Millisecond * 500)
+	log.Printf("nuclear: %s reaction over: %s", n.id, time.Now())
 	return
 }
 

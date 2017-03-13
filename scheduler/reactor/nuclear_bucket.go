@@ -51,6 +51,7 @@ func (n *nuclearBucket) fillUp() error {
 	closed := make(chan struct{})
 	close(closed)
 	var next chan struct{}
+	var count int
 
 	ticker := time.NewTicker(n.interval)
 	defer ticker.Stop()
@@ -64,6 +65,7 @@ func (n *nuclearBucket) fillUp() error {
 			//TODO: fill up too quickly, ignore this time
 			if next == nil {
 				next = closed
+				count = n.frequence
 			}
 		case <-n.notify: //FIXME: maybe add a feedback control
 			// consumer need more material
@@ -71,8 +73,32 @@ func (n *nuclearBucket) fillUp() error {
 			//next = closed
 		case <-next:
 			// fill up bucket
-			n.fillUpBucket()
-			next = nil
+			ns, err := n.generator.Next()
+			if err != nil {
+				log.Printf("nuclear bucket: generate nuclear error: %s", err)
+				next = nil
+				continue
+			}
+			if len(ns) == 0 {
+				//TODO: no more material can be producted
+				next = nil
+				continue
+			}
+			var lasterr error
+			for _, nuclear := range ns {
+				err := n.reactor.AddNuclear(nuclear)
+				switch err {
+				case ErrorReactorCapacity:
+					lasterr = err
+				default:
+					count--
+				}
+			}
+			if lasterr != nil {
+				next = nil
+			} else if count <= 0 {
+				next = nil
+			}
 		}
 	}
 }
@@ -81,45 +107,4 @@ func (n *nuclearBucket) notifyFeedback() {
 	// consumer give a feedback because productor product nuclear slowly
 	// 1. increase n.frequence count;
 	// 2. decrease n.interval
-}
-
-func (n *nuclearBucket) fillUpBucket() {
-	n.mutex.Lock()
-	if !n.fillUpRunning {
-		n.fillUpRunning = true
-		n.mutex.Unlock()
-		// fillup
-		go func() {
-			defer func() {
-				// reset the fille up status
-				n.mutex.Lock()
-				n.fillUpRunning = false
-				n.mutex.Unlock()
-			}()
-			var count int = n.frequence
-			for count > 0 {
-				ns, err := n.generator.Next()
-				if err != nil {
-					log.Printf("nuclear bucket: generate nuclear error: %s", err)
-					return
-				}
-				if len(ns) == 0 {
-					//TODO: no more material can be producted
-					return
-				}
-				for _, nuclear := range ns {
-					err := n.reactor.AddNuclear(nuclear)
-					switch err {
-					case ErrorReactorCapacity:
-						return
-					default:
-						count--
-					}
-				}
-			}
-		}()
-		return
-	}
-	n.mutex.Unlock()
-	return
 }

@@ -35,29 +35,40 @@ func NewNuclearBucket(reactor *reactor, generator NuclearGenerator, interval tim
 	}
 	go func() {
 		defer nb.tomb.Done()
-		nb.tomb.Kill(nb.loop())
+		nb.tomb.Kill(nb.fillUp())
 	}()
 	return nb
 }
 
-func (n *nuclearBucket) loop() error {
-	log.Printf("nuclear bucket: loop run")
+func (n *nuclearBucket) Kill() error {
+	n.tomb.Kill(nil)
+	return n.tomb.Wait()
+}
+
+func (n *nuclearBucket) fillUp() error {
+	log.Printf("nuclear bucket: fill up run")
 
 	closed := make(chan struct{})
 	close(closed)
 	var next chan struct{}
+
+	ticker := time.NewTicker(n.interval)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-n.tomb.Dying():
 			log.Printf("nuclear bucket: shutdown")
 			return nil
-		case <-time.After(n.interval):
-			next = closed
-		case <-n.notify:
-			// consumer need more matiral
-			n.notifyFeedback()
-			next = closed
+		case <-ticker.C:
+			//TODO: fill up too quickly, ignore this time
+			if next == nil {
+				next = closed
+			}
+		case <-n.notify: //FIXME: maybe add a feedback control
+			// consumer need more material
+			//n.notifyFeedback()
+			//next = closed
 		case <-next:
 			// fill up bucket
 			n.fillUpBucket()
@@ -90,6 +101,10 @@ func (n *nuclearBucket) fillUpBucket() {
 				ns, err := n.generator.Next()
 				if err != nil {
 					log.Printf("nuclear bucket: generate nuclear error: %s", err)
+					return
+				}
+				if len(ns) == 0 {
+					//TODO: no more material can be producted
 					return
 				}
 				for _, nuclear := range ns {

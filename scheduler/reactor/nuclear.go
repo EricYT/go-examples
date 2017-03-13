@@ -49,7 +49,9 @@ func (n *NuclearProductor) loop() error {
 			log.Printf("nuclear: nuclear productor shutdown")
 			return nil
 		case reactor := <-n.notifyCh:
-			n.reactor = reactor
+			if n.reactor == nil {
+				n.reactor = reactor
+			}
 			next = closed
 		case <-next:
 			// product nuclear for reactor
@@ -119,7 +121,6 @@ func NewNuclear(id string, priority int) *nuclear {
 }
 
 func (n *nuclear) Reaction() {
-	//	time.Sleep(time.Millisecond * 500)
 	log.Printf("nuclear: %s reaction over: %s", n.id, time.Now())
 	return
 }

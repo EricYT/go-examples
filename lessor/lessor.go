@@ -67,7 +67,7 @@ func (l *lessor) Lookup(item *LeaseItem) (*Lease, error) {
 }
 
 func (l *lessor) Grant(item *LeaseItem) (*Lease, error) {
-	log.Printf("lessor: grant item: %s", item)
+	log.Printf("lessor: grant item: %s now: %s", item, time.Now())
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	id := HashId(item)
@@ -95,9 +95,7 @@ func (l *lessor) Revoke(item *LeaseItem) error {
 		return ErrorLessorLeaseNotFound
 	}
 	//FIXME: revoke this item from meta
-
 	delete(l.leaseMap, id)
-
 	return nil
 }
 
@@ -131,20 +129,20 @@ func (l *lessor) Stop() error {
 func (l *lessor) ejectAllExpiredLeases() {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
-
-	leases := l.leaseMap
-	for id, lease := range leases {
+	for id, lease := range l.leaseMap {
 		if lease.expired() {
-			log.Printf("lessor: lease: %s expired", lease.item)
+			log.Printf("lessor: lease: %s expired now: %s", lease.item, time.Now())
 			delete(l.leaseMap, id)
 		}
 	}
 }
 
 func (l *lessor) refreshAllItems() {
-	log.Printf("lessor: refresh all items")
+	log.Printf("lessor: refresh all items now: %s", time.Now())
+
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
+
 	for _, lease := range l.leaseMap {
 		log.Printf("lessor: refresh %s", lease.item)
 	}

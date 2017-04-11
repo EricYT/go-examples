@@ -69,7 +69,7 @@ func waitAllJobsDone(t *testing.T, jobs []Job, timeout time.Duration) {
 	}
 }
 
-func aTestSchdulerRunWithoutOverflow(t *testing.T) {
+func TestSchdulerRunWithoutOverflow(t *testing.T) {
 	log.Printf("\ntest scheduler run")
 	sch := NewReactor(3, 100)
 	var jobs []Job
@@ -84,7 +84,7 @@ func aTestSchdulerRunWithoutOverflow(t *testing.T) {
 	waitAllJobsDone(t, jobs, time.Second*30)
 }
 
-func aTestSchdulerRunOverflow(t *testing.T) {
+func TestSchdulerRunOverflow(t *testing.T) {
 	log.Printf("\ntest scheduler run overflow")
 	sch := NewReactor(3, 10)
 	var jobs []Job

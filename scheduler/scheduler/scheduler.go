@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"sync"
+	"sync/atomic"
 
 	tomb "gopkg.in/tomb.v1"
 )
@@ -18,7 +19,7 @@ var (
 
 type Job interface {
 	Run() error
-	Kill(err error)
+	Kill(err error) Job
 	Wait() error
 	Done()
 }
@@ -29,6 +30,9 @@ type reactor struct {
 
 	currence    int
 	maxPendings int
+
+	runningCount int64
+	pendingCount int64
 
 	jobsC    chan chan<- Job
 	pendings []Job
@@ -60,6 +64,14 @@ func NewReactor(currence int, maxPendings int) *reactor {
 	return r
 }
 
+func (r *reactor) Pendings() int64 {
+	return atomic.LoadInt64(&r.pendingCount)
+}
+
+func (r *reactor) Running() int64 {
+	return atomic.LoadInt64(&r.runningCount)
+}
+
 func (r *reactor) AddJob(j Job) error {
 	log.Printf("reactor: add job: %#v", j)
 	r.mutex.Lock()
@@ -68,6 +80,7 @@ func (r *reactor) AddJob(j Job) error {
 		return ErrSchedulerOverMaxPendings
 	}
 
+	atomic.AddInt64(&r.pendingCount, 1)
 	r.pendings = append(r.pendings, j)
 	// maybe reset resume
 	if len(r.pendings) == 1 {
@@ -106,14 +119,13 @@ func (r *reactor) runLoop() error {
 			// job run
 			if job != nil {
 				// this will block main loop if there is not a idle worker
-				workerC := r.PickOneWorker()
+				workerC := r.pickOneWorker()
 				select {
 				case workerC <- job:
 				default:
-					// run loop be killed, worker dead
+					// worker already dead
 					log.Printf("reactor(loop): dispatch job: %#v error", job)
-					job.Kill(ErrSchedulerWorkerDead)
-					job.Done()
+					job.Kill(ErrSchedulerWorkerDead).Done()
 				}
 			}
 		case <-r.tomb.Dying():
@@ -130,10 +142,10 @@ func (r *reactor) reset() {
 	defer r.mutex.Unlock()
 	for _, job := range r.pendings {
 		log.Printf("reactor(rest): kill job: %#v", job)
-		job.Kill(ErrSchedulerReset)
-		job.Done()
+		job.Kill(ErrSchedulerReset).Done()
 	}
 	r.pendings = []Job{}
+	atomic.StoreInt64(&r.pendingCount, 0)
 }
 
 func (r *reactor) popOne() (Job, bool) {
@@ -142,12 +154,13 @@ func (r *reactor) popOne() (Job, bool) {
 	if len(r.pendings) == 0 {
 		return nil, true
 	}
+	atomic.AddInt64(&r.pendingCount, -1)
 	job := r.pendings[0]
 	r.pendings = r.pendings[1:]
 	return job, len(r.pendings) == 0
 }
 
-func (r *reactor) PickOneWorker() chan<- Job {
+func (r *reactor) pickOneWorker() chan<- Job {
 	select {
 	case <-r.tomb.Dying():
 		return nil
@@ -166,9 +179,10 @@ func (r *reactor) workerLoop(jobsC chan chan<- Job) {
 			log.Println("reactor(worker): worker done")
 			return
 		case job := <-jobC:
+			atomic.AddInt64(&r.runningCount, 1)
 			log.Printf("reactor(worker): get job %#v", job)
-			job.Kill(job.Run())
-			job.Done()
+			job.Kill(job.Run()).Done()
+			atomic.AddInt64(&r.runningCount, -1)
 		}
 	}
 }

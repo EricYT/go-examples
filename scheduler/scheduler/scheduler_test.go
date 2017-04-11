@@ -32,8 +32,9 @@ func (f *fakeJob) Run() error {
 	}
 }
 
-func (f *fakeJob) Kill(err error) {
+func (f *fakeJob) Kill(err error) Job {
 	f.tomb.Kill(err)
+	return f
 }
 
 func (f *fakeJob) Wait() error {

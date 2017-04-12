@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"errors"
 	"log"
 	"sync"
@@ -11,18 +12,11 @@ import (
 
 var (
 	ErrSchedulerOverMaxPendings error = errors.New("scheduler: pendding jobs over max limit")
-	ErrSchedulerShutdown        error = errors.New("scheduler: shutdown")
 	ErrSchedulerReset           error = errors.New("scheduler: reset")
-	ErrSchedulerCurrence        error = errors.New("schduler: currence number must greater than 0")
-	ErrSchedulerWorkerDead      error = errors.New("scheduelr: worker ready to die")
+	ErrSchedulerCurrence        error = errors.New("scheduler: currence number must greater than 0")
+	ErrSchedulerDispatch        error = errors.New("scheduler: dispatch to worker failed")
+	ErrSchedulerShutdown        error = errors.New("scheduler: already shutdown")
 )
-
-type Job interface {
-	Run() error
-	Kill(err error) Job
-	Wait() error
-	Done()
-}
 
 type reactor struct {
 	tomb  *tomb.Tomb
@@ -34,8 +28,9 @@ type reactor struct {
 	runningCount int64
 	pendingCount int64
 
-	jobsC    chan chan<- Job
-	pendings []Job
+	cancel   func()
+	jobsC    chan chan<- JobWrapper
+	pendings []JobWrapper
 	resume   chan struct{}
 }
 
@@ -47,13 +42,17 @@ func NewReactor(currence int, maxPendings int) *reactor {
 		tomb:        new(tomb.Tomb),
 		currence:    currence,
 		maxPendings: maxPendings,
-		jobsC:       make(chan chan<- Job, currence),
-		pendings:    make([]Job, 0, 200),
+		jobsC:       make(chan chan<- JobWrapper, currence),
+		pendings:    make([]JobWrapper, 0, 200),
 		resume:      make(chan struct{}, 1),
 	}
+
+	// cancel context
+	ctx, cancel := context.WithCancel(context.Background())
+	r.cancel = cancel
 	// start workers
 	for i := 0; i < currence; i++ {
-		go r.workerLoop(r.jobsC)
+		go r.workerLoop(ctx, r.jobsC)
 	}
 
 	// start main loop
@@ -72,8 +71,14 @@ func (r *reactor) Running() int64 {
 	return atomic.LoadInt64(&r.runningCount)
 }
 
-func (r *reactor) AddJob(j Job) error {
+func (r *reactor) Schedule(j JobWrapper) error {
 	log.Printf("reactor: add job: %#v", j)
+	select {
+	case <-r.tomb.Dead():
+		return ErrSchedulerShutdown
+	default:
+	}
+
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	if len(r.pendings) >= r.maxPendings {
@@ -89,8 +94,10 @@ func (r *reactor) AddJob(j Job) error {
 	return nil
 }
 
-func (r *reactor) Kill() {
+func (r *reactor) Kill() error {
 	r.tomb.Kill(nil)
+	r.cancel()
+	return r.tomb.Wait()
 }
 
 func (r *reactor) runLoop() error {
@@ -125,7 +132,7 @@ func (r *reactor) runLoop() error {
 				default:
 					// worker already dead
 					log.Printf("reactor(loop): dispatch job: %#v error", job)
-					job.Kill(ErrSchedulerWorkerDead).Done()
+					job.Interrupt(ErrSchedulerDispatch)
 				}
 			}
 		case <-r.tomb.Dying():
@@ -142,13 +149,13 @@ func (r *reactor) reset() {
 	defer r.mutex.Unlock()
 	for _, job := range r.pendings {
 		log.Printf("reactor(rest): kill job: %#v", job)
-		job.Kill(ErrSchedulerReset).Done()
+		job.Interrupt(ErrSchedulerReset)
 	}
-	r.pendings = []Job{}
+	r.pendings = []JobWrapper{}
 	atomic.StoreInt64(&r.pendingCount, 0)
 }
 
-func (r *reactor) popOne() (Job, bool) {
+func (r *reactor) popOne() (JobWrapper, bool) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	if len(r.pendings) == 0 {
@@ -160,7 +167,7 @@ func (r *reactor) popOne() (Job, bool) {
 	return job, len(r.pendings) == 0
 }
 
-func (r *reactor) pickOneWorker() chan<- Job {
+func (r *reactor) pickOneWorker() chan<- JobWrapper {
 	select {
 	case <-r.tomb.Dying():
 		return nil
@@ -169,9 +176,9 @@ func (r *reactor) pickOneWorker() chan<- Job {
 	}
 }
 
-func (r *reactor) workerLoop(jobsC chan chan<- Job) {
+func (r *reactor) workerLoop(ctx context.Context, jobsC chan chan<- JobWrapper) {
 	log.Println("reactor(worker): loop run")
-	jobC := make(chan Job)
+	jobC := make(chan JobWrapper)
 	for {
 		jobsC <- jobC
 		select {
@@ -181,7 +188,7 @@ func (r *reactor) workerLoop(jobsC chan chan<- Job) {
 		case job := <-jobC:
 			atomic.AddInt64(&r.runningCount, 1)
 			log.Printf("reactor(worker): get job %#v", job)
-			job.Kill(job.Run()).Done()
+			job.Run(ctx)
 			atomic.AddInt64(&r.runningCount, -1)
 		}
 	}

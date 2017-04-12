@@ -18,6 +18,13 @@ var (
 	ErrSchedulerShutdown        error = errors.New("scheduler: already shutdown")
 )
 
+type Scheduler interface {
+	// .Schedule schedule a job wrapper into reactor
+	Schedule(job JobWrapper) error
+	// .Kill kill the reactor and wait it done and return a error message
+	Kill(reason error) error
+}
+
 type reactor struct {
 	tomb  *tomb.Tomb
 	mutex sync.Mutex

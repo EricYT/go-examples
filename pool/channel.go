@@ -126,16 +126,14 @@ func (c *channelPool) Borrow() (PoolObjecter, error) {
 		c.mu.Unlock()
 
 		// let this one block until someone put back a Object
-		for {
-			select {
-			case obj := <-objects:
-				if obj == nil {
-					return nil, ErrClosed
-				}
-				return c.wrapObj(obj), nil
-			case <-time.After(time.Second * 5):
-				return nil, errors.New("borrow object wait timeout")
+		select {
+		case obj := <-objects:
+			if obj == nil {
+				return nil, ErrClosed
 			}
+			return c.wrapObj(obj), nil
+		case <-time.After(time.Second * 5):
+			return nil, errors.New("borrow object wait timeout")
 		}
 	}
 }

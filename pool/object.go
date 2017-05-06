@@ -27,6 +27,8 @@ func (p *PoolObject) Return() error {
 	defer p.mu.RUnlock()
 
 	if p.unusable {
+		// decrease the current number of pool objects
+		p.c.decrease()
 		if p.Object != nil {
 			return p.Object.Close()
 		}
@@ -42,7 +44,6 @@ func (p *PoolObject) MarkUnusable() {
 	p.mu.Unlock()
 }
 
-// newConn wraps a standard net.Conn to a poolConn net.Conn.
 func (c *channelPool) wrapObj(obj Object) *PoolObject {
 	p := &PoolObject{c: c}
 	p.Object = obj

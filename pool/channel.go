@@ -138,6 +138,15 @@ func (c *channelPool) Borrow() (PoolObjecter, error) {
 	}
 }
 
+func (c *channelPool) decrease() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.currNum > 0 {
+		c.currNum--
+	}
+	return c.currNum
+}
+
 // put puts the Object back to the pool. If the pool is full or closed,
 // Object is simply closed. A nil Object will be rejected.
 func (c *channelPool) put(obj Object) error {

@@ -116,8 +116,6 @@ func (r *rateBasedTokenBucketQueue) Enqueue(item interface{}, token int) error {
 	r.current -= token
 	r.queue = append(r.queue, &itemWapper{token, item})
 
-	// notify dequeue waiter
-
 	return nil
 }
 
@@ -168,6 +166,7 @@ func (r *rateBasedTokenBucketQueue) fillup() {
 				// decrease put in tokens
 				token = int(float64(lastToken) * (1 - 1/r.w2))
 			} else {
+				// increase put in tokens
 				token = lastToken + r.maxFillupSize/int(r.w1)
 				if token > r.maxFillupSize {
 					token = r.maxFillupSize

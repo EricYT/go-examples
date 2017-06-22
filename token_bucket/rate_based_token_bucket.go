@@ -28,6 +28,12 @@ const (
 	defaultTBFrequent time.Duration = 2 * time.Second
 )
 
+type TokenBucket interface {
+	Close() error
+	Take(n int64) int64
+	Wait(n int64) time.Duration
+}
+
 type rateBasedTokenBucket struct {
 	w1 float64
 	w2 float64
@@ -46,7 +52,7 @@ type rateBasedTokenBucket struct {
 
 func NewRateBasedTokenBucket(w1, w2 float64, minfs, maxfs, pbs int64, freq time.Duration, adjustFunc adjustFuncType) *rateBasedTokenBucket {
 	if w1 == 0 || w2 == 0 {
-		panic(ErrRBTBW1OrW2Empty)
+		panic(ErrRateBasedTokenBucketW1OrW2Empty)
 	}
 
 	r := &rateBasedTokenBucket{

@@ -24,12 +24,11 @@ const (
 	defaultW1 float64 = 32
 	defaultW2 float64 = 64
 
-	defaultMinFillupSize    int           = 50
-	defaultMaxFillupSize    int           = 100
-	defaultPeakBustSize     int           = 1000
-	defaultIntervalTime     time.Duration = 1 * time.Second
-	defaultMaxQueueCapacity int           = 2000
-	defaultThreshold        int           = 1200
+	defaultMinFillupSize int           = 50
+	defaultMaxFillupSize int           = 100
+	defaultPeakBustSize  int           = 1000
+	defaultIntervalTime  time.Duration = 1 * time.Second
+	defaultThreshold     int           = 1200
 )
 
 type rateBasedTokenBucketQueue struct {
@@ -43,8 +42,7 @@ type rateBasedTokenBucketQueue struct {
 	maxFillupSize int
 	peakBustSize  int
 
-	current  int
-	capacity int
+	current int
 
 	threshold int
 	interval  time.Duration
@@ -53,7 +51,7 @@ type rateBasedTokenBucketQueue struct {
 	queue    []*itemWapper
 }
 
-func NewRateBasedTokenBucketQueue(w1, w2 float64, minfs, maxfs, pbs, cap, tsd int, interval time.Duration) *rateBasedTokenBucketQueue {
+func NewRateBasedTokenBucketQueue(w1, w2 float64, minfs, maxfs, pbs, tsd int, interval time.Duration) *rateBasedTokenBucketQueue {
 	if w1 == 0 || w2 == 0 {
 		panic(ErrRBTBW1OrW2Empty)
 	}
@@ -65,7 +63,6 @@ func NewRateBasedTokenBucketQueue(w1, w2 float64, minfs, maxfs, pbs, cap, tsd in
 		minFillupSize: minfs,
 		maxFillupSize: maxfs,
 		peakBustSize:  pbs,
-		capacity:      cap,
 		current:       minfs,
 		threshold:     tsd,
 		interval:      interval,
@@ -92,7 +89,6 @@ func NewDefaultRateBasedTokenBucketQueue() *rateBasedTokenBucketQueue {
 		defaultMinFillupSize,
 		defaultMaxFillupSize,
 		defaultPeakBustSize,
-		defaultMaxQueueCapacity,
 		defaultThreshold,
 		defaultIntervalTime,
 	)
@@ -107,7 +103,7 @@ func (r *rateBasedTokenBucketQueue) Enqueue(item interface{}, token int) error {
 
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	if len(r.queue) > r.capacity {
+	if len(r.queue) > r.peakBustSize {
 		return ErrRBTBEnqueueOverflow
 	}
 	if token > r.current {
@@ -143,8 +139,8 @@ func (r *rateBasedTokenBucketQueue) runLoop() error {
 		case token := <-r.fillupCh:
 			r.mutex.Lock()
 			curr := r.current + token
-			if curr > r.capacity {
-				r.current = r.capacity
+			if curr > r.peakBustSize {
+				r.current = r.peakBustSize
 			}
 			r.current = curr
 			r.mutex.Unlock()
@@ -156,6 +152,7 @@ func (r *rateBasedTokenBucketQueue) runLoop() error {
 
 func (r *rateBasedTokenBucketQueue) fillup() {
 	ticker := time.NewTicker(r.interval)
+	defer ticker.Stop()
 	lastToken := r.minFillupSize
 	for {
 		select {

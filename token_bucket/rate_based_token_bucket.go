@@ -2,7 +2,6 @@ package token_bucket
 
 import (
 	"errors"
-	"log"
 	"math"
 	"sync/atomic"
 	"time"
@@ -124,7 +123,6 @@ func (r *rateBasedTokenBucket) Wait(n int64) time.Duration {
 	var wait time.Duration
 	for rem > 0 {
 		sleep := r.wait(rem)
-		log.Printf("Wait sleep: %d rem: %d\n", sleep, rem)
 		wait += sleep
 		time.Sleep(sleep)
 		rem -= r.Take(rem)
@@ -134,7 +132,7 @@ func (r *rateBasedTokenBucket) Wait(n int64) time.Duration {
 
 func (r *rateBasedTokenBucket) wait(n int64) time.Duration {
 	// FIXME: this is just a presume value due to last cir(commited information rate)
-	return time.Duration(int64(math.Ceil(math.Min(float64(n), float64(r.peakBustSize)) / (r.cir / float64(r.freq.Nanoseconds())))))
+	return time.Duration(int64(math.Ceil(math.Min(float64(n), float64(r.peakBustSize)) / (r.cir / float64(r.freq)))))
 }
 
 func (r *rateBasedTokenBucket) fillup() {
@@ -152,11 +150,11 @@ func (r *rateBasedTokenBucket) fillup() {
 			if increase {
 				cir = r.cir + float64(r.maxFillupSize)/r.w1
 			} else {
-				log.Printf("decrease\n")
+				cir = r.cir * (1.0 - 1.0/r.w2)
 			}
-			log.Printf("RateBasedTokenBucket: last r.cir: %v\n", r.cir)
+			//log.Printf("RateBasedTokenBucket: last r.cir: %v\n", r.cir)
 			r.cir = math.Max(float64(r.minFillupSize), math.Min(float64(r.maxFillupSize), cir))
-			log.Printf("RateBasedTokenBucket: now r.cir: %v cir:%v cir-adjust:%v\n", r.cir, cir, math.Floor(.5+cir))
+			//log.Printf("RateBasedTokenBucket: now r.cir: %v cir:%v cir-adjust:%v\n", r.cir, cir, math.Floor(.5+cir))
 			cir = math.Floor(.5 + r.cir)
 			r.Put(int64(cir))
 		case <-r.closeing:

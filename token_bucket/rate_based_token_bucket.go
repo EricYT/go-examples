@@ -152,9 +152,7 @@ func (r *rateBasedTokenBucket) fillup() {
 			} else {
 				cir = r.cir * (1.0 - 1.0/r.w2)
 			}
-			//log.Printf("RateBasedTokenBucket: last r.cir: %v\n", r.cir)
 			r.cir = math.Max(float64(r.minFillupSize), math.Min(float64(r.maxFillupSize), cir))
-			//log.Printf("RateBasedTokenBucket: now r.cir: %v cir:%v cir-adjust:%v\n", r.cir, cir, math.Floor(.5+cir))
 			cir = math.Floor(.5 + r.cir)
 			r.Put(int64(cir))
 		case <-r.closeing:

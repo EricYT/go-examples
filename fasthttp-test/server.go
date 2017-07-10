@@ -28,6 +28,7 @@ func randomBody(size int) []byte {
 
 func calculateBodyMd5(data []byte) string {
 	md5tmp := md5.Sum(data)
+	//FIXME: the same as use hex.EncodeToString(md5tmp[:])
 	var md5 string
 	for _, c := range md5tmp {
 		part := fmt.Sprintf("%x", c)

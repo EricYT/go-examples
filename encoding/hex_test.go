@@ -79,3 +79,13 @@ func TestDecodeWrongSrc(t *testing.T) {
 		t.Fatalf("Decode src(%v) is wrong hex format", src)
 	}
 }
+
+func TestDecodeString(t *testing.T) {
+	dst, err := DecodeString(dstStr)
+	if err != nil {
+		t.Fatalf("Decode string: dst(%v) error: %s", dstStr, err)
+	}
+	if bytes.Compare(dst, src) != 0 {
+		t.Fatalf("Decode string: original(%s) dst(%v) src(%v)", dstStr, dst, src)
+	}
+}

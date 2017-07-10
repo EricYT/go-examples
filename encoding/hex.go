@@ -20,12 +20,6 @@ func Encode(dst, src []byte) int {
 	return len(src) * 2
 }
 
-func EncodeToString(src []byte) string {
-	dst := make([]byte, len(src)*2)
-	Encode(dst, src)
-	return string(dst)
-}
-
 var ErrWrongLen error = errors.New("decode source bytes length is wrong")
 
 func Decode(dst, src []byte) (int, error) {
@@ -58,4 +52,22 @@ func fromHexChar(c byte) (byte, bool) {
 		return c - 'A' + 10, true
 	}
 	return 0, false
+}
+
+func DecodedLen(len int) int { return len / 2 }
+
+func EncodeToString(src []byte) string {
+	dst := make([]byte, len(src)*2)
+	Encode(dst, src)
+	return string(dst)
+}
+
+func DecodeString(s string) ([]byte, error) {
+	src := []byte(s)
+	dst := make([]byte, DecodedLen(len(src)))
+	_, err := Decode(dst, src)
+	if err != nil {
+		return nil, err
+	}
+	return dst, nil
 }

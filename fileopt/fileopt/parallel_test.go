@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"testing"
 	"time"
@@ -29,14 +30,20 @@ func RemoveJob(path string) {
 }
 
 func filterFun(path string, info os.FileInfo, err error) (worker.Jobber, error) {
-	log.Printf("parallel: path(%s) err: %s\n", path, err)
 	if info.IsDir() {
-		log.Printf("parallel: path: %s is directory. Skip it", path)
+		log.Printf("parallel: path(%s) is directory. Skip it", path)
 		return nil, filepath.SkipDir
 	}
-	j := NewJob(path)
-	AddJob(j)
-	return j, nil
+
+	match, _ := regexp.MatchString("foo.*", path)
+	if match {
+		log.Printf("parallel: path(%s) skip\n", path)
+		j := NewJob(path)
+		AddJob(j)
+		return j, nil
+	}
+
+	return nil, nil
 }
 
 type job struct {
@@ -55,7 +62,8 @@ func (j *job) Path() string { return j.path }
 
 func (j *job) Execute() error {
 	log.Printf("Job: path(%s) execute\n", j.path)
-	return nil
+	//FIXME: Oh my god, dangerous
+	return os.Remove(j.path)
 }
 
 func (j *job) Done(err error) {

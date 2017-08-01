@@ -28,22 +28,32 @@ func revisionsCompare(t *testing.T, r []*Revision, e []*Revision) {
 
 func TestRevisionsSort(t *testing.T) {
 	revisions := []*Revision{
-		{9, 123, []byte{}},
-		{1, 123, []byte{}},
+		{9, 1, []byte{}},
+		{1, 23, []byte{}},
 		{3, 123, []byte{}},
-		{2, 123, []byte{}},
+		{2, 3, []byte{}},
 	}
-	sortedRevisions := []*Revision{
-		{1, 123, []byte{}},
-		{2, 123, []byte{}},
+	sortedRevisionsByVClock := []*Revision{
+		{1, 23, []byte{}},
+		{2, 3, []byte{}},
 		{3, 123, []byte{}},
-		{9, 123, []byte{}},
+		{9, 1, []byte{}},
+	}
+	sortedRevisionsByOff := []*Revision{
+		{9, 1, []byte{}},
+		{2, 3, []byte{}},
+		{1, 23, []byte{}},
+		{3, 123, []byte{}},
 	}
 	// sort revisions
-	sort.Sort(Revisions(revisions))
-
+	sort.Sort(RevisionsSortByVClock(revisions))
 	// compare
-	revisionsCompare(t, revisions, sortedRevisions)
+	revisionsCompare(t, revisions, sortedRevisionsByVClock)
+
+	// sort revisions
+	sort.Sort(RevisionsSortByOff(revisions))
+	// compare
+	revisionsCompare(t, revisions, sortedRevisionsByOff)
 }
 
 /*
@@ -64,16 +74,16 @@ vc 0 1 2 3 4 5 6 7 8 9
 */
 
 var (
-	r *Revision = NewRevision(0, 4, []byte{1, 2, 3})
+	r *Revision = &Revision{0, 4, []byte{1, 2, 3}}
 
-	r1 *Revision = NewRevision(1, 0, []byte{4, 5, 6, 7})
-	r2 *Revision = NewRevision(3, 1, []byte{1, 3, 5, 7})
-	r3 *Revision = NewRevision(5, 2, []byte{2, 2, 6, 3})
-	r4 *Revision = NewRevision(2, 3, []byte{0, 5, 1, 1})
-	r5 *Revision = NewRevision(9, 4, []byte{3, 1, 6, 3})
-	r6 *Revision = NewRevision(7, 5, []byte{8, 2, 9, 3})
-	r7 *Revision = NewRevision(8, 6, []byte{9, 3, 6, 3})
-	r8 *Revision = NewRevision(10, 7, []byte{4, 9, 9, 9})
+	r1 *Revision = &Revision{1, 0, []byte{4, 5, 6, 7}}
+	r2 *Revision = &Revision{3, 1, []byte{1, 3, 5, 7}}
+	r3 *Revision = &Revision{5, 2, []byte{2, 2, 6, 3}}
+	r4 *Revision = &Revision{2, 3, []byte{0, 5, 1, 1}}
+	r5 *Revision = &Revision{9, 4, []byte{3, 1, 6, 3}}
+	r6 *Revision = &Revision{7, 5, []byte{8, 2, 9, 3}}
+	r7 *Revision = &Revision{8, 6, []byte{9, 3, 6, 3}}
+	r8 *Revision = &Revision{10, 7, []byte{4, 9, 9, 9}}
 )
 
 func TestRevisionIntersect(t *testing.T) {
@@ -180,6 +190,16 @@ func TestSparseRevisionsInsert2(t *testing.T) {
 	displayRevisions(t, sr.revisions)
 	sr.Insert(&Revision{9, 4, []byte{3, 2}})
 	displayRevisions(t, sr.revisions)
+	sr.Compaction()
+	displayRevisions(t, sr.revisions)
+	r1 = &Revision{-1, 0, []byte{1, 2, 3, 0, 3, 2}}
+	r2 = &Revision{2, 7, []byte{9, 1, 9}}
+	if !revisionEqual(sr.revisions[0], r1) {
+		t.Errorf("revision sparse revision 0(%v) not equal r1(%v)", sr.revisions[0], r1)
+	}
+	if !revisionEqual(sr.revisions[1], r2) {
+		t.Errorf("revision sparse revision 1(%v) not equal r2(%v)", sr.revisions[1], r2)
+	}
 }
 
 func displayRevisions(t *testing.T, rs []*Revision) {

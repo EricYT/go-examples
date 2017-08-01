@@ -162,6 +162,7 @@ func TestSparseRevisionsInsert1(t *testing.T) {
 	sr.Insert(r6)
 	sr.Insert(r7)
 	sr.Insert(r8)
+	displayRevisions(t, sr.revisions)
 	r = &Revision{10, 0, []byte{4, 1, 2, 2, 3, 1, 6, 4, 9, 9, 9}}
 	if !revisionEqual(sr.revisions[0], r) {
 		t.Errorf("revision sparse insert result: %v not equal right %v", sr.revisions[0], r)
@@ -176,20 +177,16 @@ vc 0 1 2 3 4 5 6 7 8 9
 2  - - - - - - - 9 1 9 -
 9  - - - - 3 2 - - - - -
 
-   1 2 3 0 3 2 - - - - -
+   1 2 3 0 3 2 - 9 1 9 -
 
 */
 
 func TestSparseRevisionsInsert2(t *testing.T) {
 	sr := NewEmptySparseRevisions()
 	sr.Insert(&Revision{1, 0, []byte{1, 2, 3}})
-	displayRevisions(t, sr.revisions)
 	sr.Insert(&Revision{3, 3, []byte{0, 6, 3}})
-	displayRevisions(t, sr.revisions)
 	sr.Insert(&Revision{2, 7, []byte{9, 1, 9}})
-	displayRevisions(t, sr.revisions)
 	sr.Insert(&Revision{9, 4, []byte{3, 2}})
-	displayRevisions(t, sr.revisions)
 	sr.Compaction()
 	displayRevisions(t, sr.revisions)
 	r1 = &Revision{-1, 0, []byte{1, 2, 3, 0, 3, 2}}

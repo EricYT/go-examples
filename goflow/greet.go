@@ -42,7 +42,11 @@ func NewGreetingApp() *GreetingApp {
 	n.InitGraphState()    // allocates memory for the graph
 	// Add processes to the network
 	n.Add(new(Greeter), "greeter")
-	n.Add(new(Printer), "printer")
+
+	printer := new(Printer)
+	printer.Mode = flow.ComponentModeAsync
+	//printer.Mode = flow.ComponentModeSync
+	n.Add(printer, "printer")
 	// Connect them with a channel
 	n.Connect("greeter", "Res", "printer", "Line")
 	// Our net has 1 inport mapped to greeter.Name

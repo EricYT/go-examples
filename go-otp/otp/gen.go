@@ -24,21 +24,30 @@ func startGen(name Name, genMod *genServer, args ...interface{}) *gen {
 		genMod: genMod,
 	}
 
+	registerDoneCh := make(chan struct{})
 	// start gen loop goroutine
 	go func() {
 		// FIXME: recover
 		defer g.genMod.tomb.Done()
-		g.genMod.tomb.Kill(g.initIt(name, args...))
+		g.genMod.tomb.Kill(g.initIt(registerDoneCh, name, args...))
 	}()
+
+	// wait this gen started
+	<-registerDoneCh
 
 	return g
 }
 
-func (g *gen) initIt(name Name, args ...interface{}) error {
+func (g *gen) initIt(registered chan<- struct{}, name Name, args ...interface{}) error {
 	// register gen server by name
 	if err := registerName(name, g); err != nil {
+		close(registered)
 		return err
 	}
+
+	// registered
+	registered <- struct{}{}
+
 	// callback initialize gen module
 	if err := g.genMod.InitIt(args...); err != nil {
 		return err

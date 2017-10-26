@@ -4,14 +4,13 @@ import (
 	"context"
 	"log"
 	"testing"
-	"time"
 )
 
 type fake struct {
 }
 
 func (f *fake) Init(args ...interface{}) (context.Context, error) {
-	log.Println("fake initialize")
+	log.Printf("fake initialize args: %#v\n", args)
 	return context.TODO(), nil
 }
 
@@ -42,7 +41,6 @@ func TestGenServerCall(t *testing.T) {
 	fakeName := Name("fake")
 	f := &fake{}
 	NewGenServer(fakeName, f, 1, 2, 3)
-	time.Sleep(time.Second * 3)
 
 	res, err := Call(fakeName, "ping")
 	if err != nil {

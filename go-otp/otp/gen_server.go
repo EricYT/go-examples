@@ -55,15 +55,14 @@ type genServer struct {
 	mod  GenServer
 }
 
-func NewGenServer(name Name, mod GenServer, args ...interface{}) *genServer {
+func NewGenServer(name Name, mod GenServer, args ...interface{}) error {
 	g := &genServer{
 		mailbox: make(chan interface{}, 100), //default mailbox buffer is set to 100
 		name:    name,
 		mod:     mod,
 	}
 	// start background gen module
-	startGen(name, g, args)
-	return g
+	return newGen(name, g, args)
 }
 
 func (g *genServer) InitIt(args ...interface{}) error {
@@ -161,7 +160,7 @@ func (g *genServer) handleCast(ctx context.Context, msg interface{}) (context.Co
 
 func (g *genServer) handleInfo(ctx context.Context, msg interface{}) (context.Context, error) {
 	var err error
-	cast_, _ := msg.(cast)
+	cast_, _ := msg.(info)
 	ctx, err = g.mod.HandleInfo(ctx, cast_.req)
 	if err != nil {
 		return ctx, err
@@ -172,9 +171,11 @@ func (g *genServer) handleInfo(ctx context.Context, msg interface{}) (context.Co
 func (g *genServer) terminate(ctx context.Context, msg interface{}) (context.Context, error) {
 	exit_, _ := msg.(exit)
 	if err := g.mod.Terminate(ctx, exit_.reason); err != nil {
+		exit_.errCh <- err
 		return ctx, err
 	}
 	// always done
+	exit_.errCh <- ErrorGenServerTerminate
 	return ctx, ErrorGenServerTerminate
 }
 
@@ -193,6 +194,7 @@ type info struct {
 
 type exit struct {
 	reason interface{}
+	errCh  chan error
 }
 
 // tool functions

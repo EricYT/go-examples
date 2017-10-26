@@ -13,40 +13,40 @@ var (
 	ErrorGenCallResult  error = errors.New("gen: gen call wrong result")
 	ErrorGenCast        error = errors.New("gen: gen cast error")
 	ErrorGenInfo        error = errors.New("gen: gen info error")
+	ErrorGenTerminate   error = errors.New("gen: gen terminate error")
 )
 
 type gen struct {
 	genMod *genServer
 }
 
-func startGen(name Name, genMod *genServer, args ...interface{}) *gen {
+func newGen(name Name, genMod *genServer, args ...interface{}) error {
 	g := &gen{
 		genMod: genMod,
 	}
 
-	registerDoneCh := make(chan struct{})
+	errCh := make(chan error)
 	// start gen loop goroutine
 	go func() {
 		// FIXME: recover
 		defer g.genMod.tomb.Done()
-		g.genMod.tomb.Kill(g.initIt(registerDoneCh, name, args...))
+		g.genMod.tomb.Kill(g.initIt(errCh, name, args...))
 	}()
 
 	// wait this gen started
-	<-registerDoneCh
-
-	return g
+	return <-errCh
 }
 
-func (g *gen) initIt(registered chan<- struct{}, name Name, args ...interface{}) error {
+func (g *gen) initIt(errCh chan<- error, name Name, args ...interface{}) error {
 	// register gen server by name
 	if err := registerName(name, g); err != nil {
-		close(registered)
+		errCh <- err
 		return err
 	}
+	defer unregisterName(name)
 
-	// registered
-	registered <- struct{}{}
+	// gen started
+	errCh <- nil
 
 	// callback initialize gen module
 	if err := g.genMod.InitIt(args...); err != nil {
@@ -125,4 +125,15 @@ func Info(server Name, req interface{}) error {
 	default:
 		return ErrorGenInfo
 	}
+}
+
+func Terminate(server Name, reason interface{}) error {
+	gen, err := getGenByName(server)
+	if err != nil {
+		log.Printf("[gen:Terminate] server: %s req: %#v get by name error: %s\n", server, reason, err)
+		return err
+	}
+	errCh := make(chan error, 1)
+	gen.genMod.mailbox <- exit{reason, errCh}
+	return <-errCh
 }

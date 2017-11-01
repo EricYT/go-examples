@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"sync"
 	"time"
 
 	tomb "gopkg.in/tomb.v1"
@@ -11,7 +12,6 @@ import (
 
 var (
 	ErrDynamicSchedulerOverMaxPendings error = errors.New("dynamic scheduler: pendding jobs over max limit")
-	ErrDynamicSchedulerReset           error = errors.New("dynamic scheduler: reset")
 	ErrDynamicSchedulerCurrence        error = errors.New("dynamic scheduler: currence number must greater than 0")
 	ErrDynamicSchedulerThresold        error = errors.New("dynamic scheduler: thresold number less than 0")
 	ErrDynamicSchedulerDispatch        error = errors.New("dynamic scheduler: dispatch to worker failed")
@@ -31,6 +31,8 @@ type dynamicReactor struct {
 	runningWorkers map[int64]*worker
 	jobCh          chan jobEntry
 	controlCh      chan controlMsger
+
+	workersWg sync.WaitGroup
 }
 
 func NewDynamicReactor(max, thresold, maxPendings int) *dynamicReactor {
@@ -48,7 +50,7 @@ func NewDynamicReactor(max, thresold, maxPendings int) *dynamicReactor {
 		waiters:        make([]JobWrapper, 0, 200),
 		idleWorkers:    make([]*worker, 0, max),
 		runningWorkers: make(map[int64]*worker),
-		jobCh:          make(chan jobEntry, thresold),
+		jobCh:          make(chan jobEntry),
 		controlCh:      make(chan controlMsger),
 	}
 
@@ -84,12 +86,9 @@ func (d *dynamicReactor) Schedule(j JobWrapper) error {
 		return ErrDynamicSchedulerShutdown
 	}
 
-	select {
-	case err := <-ackC:
-		return err
-	case <-d.tomb.Dying():
-		return ErrDynamicSchedulerShutdown
-	}
+	log.Println("[scheduler] put in")
+	// scheduler get the request must return a value
+	return <-ackC
 }
 
 func (d *dynamicReactor) pushWaiter(j JobWrapper) {
@@ -123,13 +122,19 @@ func (d *dynamicReactor) insertRunningWorker(w *worker) {
 }
 
 func (d *dynamicReactor) removeRunningWorker(id int64) {
+	// FIXME: Is need to check there is one exist ?
 	delete(d.runningWorkers, id)
 }
 
 func (d *dynamicReactor) spawnWorker(ctx context.Context, workersCh chan<- *worker) *worker {
 	id := d.id
 	d.id++
-	w := newWorker(ctx, id, workersCh)
+	w := newWorker(id)
+	go func() {
+		d.workersWg.Add(1)
+		defer d.workersWg.Done()
+		w.run(ctx, workersCh)
+	}()
 	return w
 }
 
@@ -141,17 +146,25 @@ func (d *dynamicReactor) isIdle(idle chan bool) {
 	idle <- (len(d.runningWorkers) == 0 && len(d.waiters) == 0)
 }
 
-func (d *dynamicReactor) clean() {
+func (d *dynamicReactor) clean(cancel func()) {
+	// clean all waiters
 	for _, waiter := range d.waiters {
 		waiter.Interrupt(ErrDynamicSchedulerShutdown)
 	}
 	d.waiters = []JobWrapper{}
+
+	// ctx cancel
+	cancel()
+
+	// wait all workers done
+	d.workersWg.Wait()
+
+	// clean all references to these workers
 	d.idleWorkers = []*worker{}
 	d.runningWorkers = make(map[int64]*worker)
 }
 
-// for test
-
+// for debug
 func (d *dynamicReactor) report() {
 	ticker := time.NewTicker(time.Second)
 	for {
@@ -167,7 +180,6 @@ func (d *dynamicReactor) report() {
 func (d *dynamicReactor) runLoop() error {
 	var workersCh = make(chan *worker, d.thresold)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	go d.report()
 
@@ -207,7 +219,7 @@ func (d *dynamicReactor) runLoop() error {
 					close(w.jobC)
 				}
 			}
-		case m := <-d.controlCh:
+		case m := <-d.controlCh: // control channel
 			switch msg := m.(type) {
 			case idle:
 				d.isIdle(msg.idleCh)
@@ -215,7 +227,7 @@ func (d *dynamicReactor) runLoop() error {
 				panic("unknow control message")
 			}
 		case <-d.tomb.Dying():
-			d.clean()
+			d.clean(cancel)
 			log.Printf("[scheduler] I'm done")
 			return nil
 		}
@@ -243,13 +255,12 @@ type worker struct {
 	jobC chan JobWrapper
 }
 
-func newWorker(ctx context.Context, id int64, workersCh chan<- *worker) *worker {
-	log.Printf("new woker id: %d\n", id)
+func newWorker(id int64) *worker {
+	log.Printf("[worker] new woker id: %d\n", id)
 	w := &worker{
 		id:   id,
 		jobC: make(chan JobWrapper),
 	}
-	go w.run(ctx, workersCh)
 	return w
 }
 

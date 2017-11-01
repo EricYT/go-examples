@@ -23,6 +23,8 @@ type Scheduler interface {
 	Schedule(job JobWrapper) error
 	// .Kill kill the reactor and wait it done and return a error message
 	Kill(reason error) error
+	// .Idle returns true if there are no running jobs and waiters.
+	Idle() bool
 }
 
 type reactor struct {

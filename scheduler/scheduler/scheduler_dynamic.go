@@ -145,6 +145,9 @@ func (d *dynamicReactor) clean() {
 	for _, waiter := range d.waiters {
 		waiter.Interrupt(ErrDynamicSchedulerShutdown)
 	}
+	d.waiters = []JobWrapper{}
+	d.idleWorkers = []*worker{}
+	d.runningWorkers = make(map[int64]*worker)
 }
 
 // for test

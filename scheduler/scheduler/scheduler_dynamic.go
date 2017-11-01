@@ -141,6 +141,12 @@ func (d *dynamicReactor) isIdle(idle chan bool) {
 	idle <- (len(d.runningWorkers) == 0 && len(d.waiters) == 0)
 }
 
+func (d *dynamicReactor) clean() {
+	for _, waiter := range d.waiters {
+		waiter.Interrupt(ErrDynamicSchedulerShutdown)
+	}
+}
+
 // for test
 
 func (d *dynamicReactor) report() {
@@ -148,7 +154,9 @@ func (d *dynamicReactor) report() {
 	for {
 		select {
 		case <-ticker.C:
-			log.Printf("idle workers: %d running workers: %d waiters: %d\n", len(d.idleWorkers), len(d.runningWorkers), len(d.waiters))
+			log.Printf("[report] idle workers: %d running workers: %d waiters: %d idle: %v\n", len(d.idleWorkers), len(d.runningWorkers), len(d.waiters), d.Idle())
+		case <-d.tomb.Dying():
+			return
 		}
 	}
 }
@@ -204,6 +212,8 @@ func (d *dynamicReactor) runLoop() error {
 				panic("unknow control message")
 			}
 		case <-d.tomb.Dying():
+			d.clean()
+			log.Printf("[scheduler] I'm done")
 			return nil
 		}
 	}
@@ -244,18 +254,22 @@ func (w *worker) run(ctx context.Context, workersCh chan<- *worker) {
 	for {
 		// waiting for a job or dead message
 		select {
+		case <-ctx.Done():
+			log.Printf("[worker] id: %d Parent done, I'm done", w.id)
+			return
 		case job, ok := <-w.jobC:
-			log.Printf("[worker] id: %d got a job", w.id)
 			if !ok {
 				log.Printf("[worker] id: %d I'm done", w.id)
 				return
 			}
+			log.Printf("[worker] id: %d got a job", w.id)
 			job.Run(ctx)
 		}
 		// job done
 		select {
 		case workersCh <- w:
 		case <-ctx.Done():
+			log.Printf("[worker] id: %d Parent done, I'm done", w.id)
 			return
 		}
 	}

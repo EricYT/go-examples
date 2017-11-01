@@ -12,6 +12,7 @@ import (
 func TestSchedulerDynamicRun(t *testing.T) {
 	log.Println("TestSchedulerDynamicRun go")
 	reactor := NewDynamicReactor(5, 3, 2)
+	defer reactor.Kill()
 	var jobs []*fakeJob
 	for i := 0; i < 10; i++ {
 		job := &fakeJob{id: i, tomb: new(tomb.Tomb)}
@@ -28,7 +29,7 @@ func TestSchedulerDynamicRun(t *testing.T) {
 		go func(j JobWrapper) {
 			err := reactor.Schedule(j)
 			if err != nil {
-				log.Println(err)
+				j.Interrupt(err)
 			}
 		}(jobWrapper)
 		jobs = append(jobs, job)

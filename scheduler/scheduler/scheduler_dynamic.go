@@ -73,7 +73,7 @@ func (d *dynamicReactor) Idle() bool {
 	select {
 	case d.controlCh <- idle{idleCh}:
 		return <-idleCh
-	case <-d.tomb.Dying():
+	case <-d.tomb.Dead():
 		return true
 	}
 }
@@ -82,7 +82,7 @@ func (d *dynamicReactor) Schedule(j JobWrapper) error {
 	ackC := make(chan error, 1)
 	select {
 	case d.jobCh <- jobEntry{j, ackC}:
-	case <-d.tomb.Dying():
+	case <-d.tomb.Dead():
 		return ErrDynamicSchedulerShutdown
 	}
 
@@ -130,8 +130,8 @@ func (d *dynamicReactor) spawnWorker(ctx context.Context, workersCh chan<- *work
 	id := d.id
 	d.id++
 	w := newWorker(id)
+	d.workersWg.Add(1)
 	go func() {
-		d.workersWg.Add(1)
 		defer d.workersWg.Done()
 		w.run(ctx, workersCh)
 	}()
@@ -191,6 +191,7 @@ func (d *dynamicReactor) runLoop() error {
 			worker := d.popIdleWorker()
 			if worker != nil {
 				log.Printf("[scheduler] got a idle woker id: %d", worker.id)
+				d.insertRunningWorker(worker)
 				worker.jobC <- je.job
 			} else if d.totalWorkers() < d.max {
 				w := d.spawnWorker(ctx, workersCh)

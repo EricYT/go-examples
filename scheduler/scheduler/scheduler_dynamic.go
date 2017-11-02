@@ -192,12 +192,12 @@ func (d *dynamicReactor) runLoop() error {
 			if worker != nil {
 				log.Printf("[scheduler] got a idle woker id: %d", worker.id)
 				d.insertRunningWorker(worker)
-				worker.jobC <- je.job
+				worker.jobCh <- je.job
 			} else if d.totalWorkers() < d.max {
 				w := d.spawnWorker(ctx, workersCh)
 				log.Printf("[scheduler] spawn a new worker id: %d", w.id)
 				d.insertRunningWorker(w)
-				w.jobC <- je.job
+				w.jobCh <- je.job
 			} else {
 				if len(d.waiters) > d.maxPendings {
 					err = ErrDynamicSchedulerOverMaxPendings
@@ -210,14 +210,14 @@ func (d *dynamicReactor) runLoop() error {
 			log.Printf("[scheduler] worker: %d done. waiters: %d", w.id, len(d.waiters))
 			if len(d.waiters) > 0 {
 				j := d.popWaiter()
-				w.jobC <- j
+				w.jobCh <- j
 			} else {
 				d.removeRunningWorker(w.id)
 				if len(d.idleWorkers) < d.thresold {
 					d.pushIdleWorker(w)
 				} else {
 					// stop this worker
-					close(w.jobC)
+					close(w.jobCh)
 				}
 			}
 		case m := <-d.controlCh: // control channel
@@ -252,15 +252,15 @@ func (i idle) Control() {}
 
 // worker
 type worker struct {
-	id   int64
-	jobC chan JobWrapper
+	id    int64
+	jobCh chan JobWrapper
 }
 
 func newWorker(id int64) *worker {
 	log.Printf("[worker] new woker id: %d\n", id)
 	w := &worker{
-		id:   id,
-		jobC: make(chan JobWrapper),
+		id:    id,
+		jobCh: make(chan JobWrapper),
 	}
 	return w
 }
@@ -272,9 +272,9 @@ func (w *worker) run(ctx context.Context, workersCh chan<- *worker) {
 		case <-ctx.Done():
 			log.Printf("[worker] id: %d Parent done, I'm done", w.id)
 			return
-		case job, ok := <-w.jobC:
+		case job, ok := <-w.jobCh:
 			if !ok {
-				log.Printf("[worker] id: %d I'm done", w.id)
+				log.Printf("[worker] Parent let me done id: %d I'm done", w.id)
 				return
 			}
 			log.Printf("[worker] id: %d got a job", w.id)

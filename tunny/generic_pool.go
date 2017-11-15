@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"sync"
+	"time"
 
 	"github.com/Jeffail/tunny"
 )
@@ -46,7 +47,7 @@ func main() {
 		go func(idx int) {
 			defer wg.Done()
 			var result = Foo{val: idx}
-			_, err := pool.SendWork(NewFoo(idx, &result))
+			_, err := pool.SendWorkTimed(time.Second, NewFoo(idx, &result))
 			if err != nil {
 				panic(err)
 			}

@@ -23,6 +23,8 @@ type Scheduler interface {
 	Schedule(job JobWrapper) error
 	// .Kill kill the reactor and wait it done and return a error message
 	Kill(reason error) error
+	// .Idle returns true if there are no running jobs and waiters.
+	Idle() bool
 }
 
 type reactor struct {
@@ -136,6 +138,7 @@ func (r *reactor) runLoop() error {
 				workerC := r.pickOneWorker()
 				select {
 				case workerC <- job:
+					atomic.AddInt64(&r.pendingCount, -1)
 				default:
 					// worker already dead
 					log.Printf("reactor(loop): dispatch job: %#v error", job)
@@ -168,7 +171,6 @@ func (r *reactor) popOne() (JobWrapper, bool) {
 	if len(r.pendings) == 0 {
 		return nil, true
 	}
-	atomic.AddInt64(&r.pendingCount, -1)
 	job := r.pendings[0]
 	r.pendings = r.pendings[1:]
 	return job, len(r.pendings) == 0
@@ -187,15 +189,20 @@ func (r *reactor) workerLoop(ctx context.Context, jobsC chan chan<- JobWrapper) 
 	log.Println("reactor(worker): loop run")
 	jobC := make(chan JobWrapper)
 	for {
-		jobsC <- jobC
+		select {
+		case jobsC <- jobC:
+		case <-r.tomb.Dying():
+			return
+		}
+
 		select {
 		case <-r.tomb.Dying():
 			log.Println("reactor(worker): worker done")
 			return
 		case job := <-jobC:
 			atomic.AddInt64(&r.runningCount, 1)
-			log.Printf("reactor(worker): get job %#v", job)
 			job.Run(ctx)
+			job = nil
 			atomic.AddInt64(&r.runningCount, -1)
 		}
 	}

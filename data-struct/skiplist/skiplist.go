@@ -19,7 +19,7 @@ func init() {
 type Node struct {
 	key     int
 	value   int
-	forward []*Node // The forward node in every level it comes
+	forward []*Node // The forward node in every level it comes. This is the key for understanding the algorithm.
 }
 
 func NewNode(level, key, value int) *Node {

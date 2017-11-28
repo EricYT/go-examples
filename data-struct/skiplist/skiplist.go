@@ -19,7 +19,7 @@ func init() {
 type Node struct {
 	key     int
 	value   int
-	forward []*Node
+	forward []*Node // The forward node in every level it comes
 }
 
 func NewNode(level, key, value int) *Node {
@@ -51,6 +51,10 @@ func (sl *SkipList) randomLevel() int {
 }
 
 func (sl *SkipList) Insert(key, value int) bool {
+	return sl.insert(key, value) != nil
+}
+
+func (sl *SkipList) insert(key, value int) *Node {
 	var updates = make([]*Node, MAX_LEVEL)
 	var p *Node
 	var q *Node
@@ -69,7 +73,7 @@ func (sl *SkipList) Insert(key, value int) bool {
 
 	// can not insert same key
 	if q != nil && q.key == key {
-		return false
+		return nil
 	}
 
 	// random a level to insert
@@ -82,25 +86,30 @@ func (sl *SkipList) Insert(key, value int) bool {
 		sl.level = k
 	}
 
-	// insert new node
+	// initialize forward nodes of every level. And
+	// link it behind prevous node.
 	node := NewNode(k, key, value)
 	for i := 0; i < k; i++ {
 		node.forward[i] = updates[i].forward[i]
 		updates[i].forward[i] = node
 	}
 
-	return true
+	return node
 }
 
 func (sl *SkipList) Delete(key int) bool {
-	var updates = make([]*Node, MAX_LEVEL)
+	return sl.delete(key) != nil
+}
 
+func (sl *SkipList) delete(key int) *Node {
 	var p *Node
 	var q *Node
+
 	p = sl.header
 	k := sl.level
 
 	// updates
+	var updates = make([]*Node, MAX_LEVEL)
 	for i := k - 1; i >= 0; i-- {
 		for q = p.forward[i]; q != nil && q.key < key; {
 			p = q
@@ -120,29 +129,36 @@ func (sl *SkipList) Delete(key int) bool {
 				}
 			}
 		}
-		return true
+		return q
 	}
 
-	return false
+	return nil
 }
 
 func (sl *SkipList) Search(key int) (int, bool) {
+	if node, ok := sl.search(key); ok {
+		return node.value, true
+	}
+	return -1, false
+}
+
+func (sl *SkipList) search(key int) (*Node, bool) {
 	var p *Node
-	var q *Node
 
 	p = sl.header
 	k := sl.level
 	for i := k - 1; i >= 0; i-- {
-		for q = p.forward[i]; q != nil && q.key <= key; {
+		// if we skip to below level, we just begin from the node of above node 'p'
+		for q := p.forward[i]; q != nil && q.key <= key; {
 			if q.key == key {
-				return q.value, true
+				return q, true
 			}
 			p = q
 			q = p.forward[i]
 		}
 	}
 
-	return -1, false
+	return nil, false
 }
 
 func (sl *SkipList) Display() {

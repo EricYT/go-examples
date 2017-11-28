@@ -52,7 +52,6 @@ func (sl *SkipList) randomLevel() int {
 
 func (sl *SkipList) Insert(key, value int) bool {
 	var updates = make([]*Node, MAX_LEVEL)
-
 	var p *Node
 	var q *Node
 
@@ -61,12 +60,9 @@ func (sl *SkipList) Insert(key, value int) bool {
 
 	// find update nodes
 	for i := k - 1; i >= 0; i-- {
-		for {
-			if q = p.forward[i]; q != nil && q.key < key {
-				p = q
-				continue
-			}
-			break
+		for q = p.forward[i]; q != nil && q.key < key; {
+			p = q
+			q = p.forward[i]
 		}
 		updates[i] = p
 	}
@@ -106,13 +102,9 @@ func (sl *SkipList) Delete(key int) bool {
 
 	// updates
 	for i := k - 1; i >= 0; i-- {
-		for {
+		for q = p.forward[i]; q != nil && q.key < key; {
+			p = q
 			q = p.forward[i]
-			if q != nil && q.key < key {
-				p = q
-				continue
-			}
-			break
 		}
 		updates[i] = p
 	}
@@ -141,14 +133,12 @@ func (sl *SkipList) Search(key int) (int, bool) {
 	p = sl.header
 	k := sl.level
 	for i := k - 1; i >= 0; i-- {
-		for {
-			if q = p.forward[i]; q != nil && q.key <= key {
-				if q.key == key {
-					return q.value, true
-				}
-				p = q
+		for q = p.forward[i]; q != nil && q.key <= key; {
+			if q.key == key {
+				return q.value, true
 			}
-			break
+			p = q
+			q = p.forward[i]
 		}
 	}
 
@@ -156,22 +146,15 @@ func (sl *SkipList) Search(key int) (int, bool) {
 }
 
 func (sl *SkipList) Display() {
-	var p *Node
-	var q *Node
-
 	k := sl.level
-
 	for i := k - 1; i >= 0; i-- {
-		p = sl.header
-		for {
-			if q = p.forward[i]; q != nil {
-				fmt.Printf("-> %d", q.value)
-				p = q
-				continue
-			}
-			break
+		fmt.Printf("Level %-2d : ", i+1)
+		p := sl.header
+		for p = p.forward[i]; p != nil; {
+			fmt.Printf(" %-2d ->", p.value)
+			p = p.forward[i]
 		}
-		fmt.Printf("\n")
+		fmt.Printf(" NULL \n")
 	}
 	fmt.Printf("\n")
 }

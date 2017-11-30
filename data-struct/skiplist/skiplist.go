@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+// This implemention is not thread safe.
+
 const (
 	MAX_LEVEL int = 10
 )
@@ -47,7 +49,14 @@ func NewSkipList() *SkipList {
 }
 
 func (sl *SkipList) randomLevel() int {
-	return random.Intn(MAX_LEVEL) + 1
+	var k = 1
+	for random.Int()%2 != 0 {
+		k++
+	}
+	if k < MAX_LEVEL {
+		return k
+	}
+	return MAX_LEVEL
 }
 
 func (sl *SkipList) Insert(key, value int) bool {

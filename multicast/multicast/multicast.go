@@ -67,7 +67,7 @@ func (m *multicastCenter) RemoveMulticast(addr string) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	mul, ok := m.multicasters[addr]
-	if ok {
+	if !ok {
 		return ErrorMulticastNotFound
 	}
 	delete(m.multicasters, addr)

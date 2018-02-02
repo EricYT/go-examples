@@ -2,6 +2,7 @@ package multicast
 
 import (
 	"errors"
+	"log"
 	"net"
 	"sync"
 
@@ -14,124 +15,151 @@ const (
 )
 
 var (
-	ErrorMulticastServerNotFound  error = errors.New("multicast: server not found")
+	ErrorMulticastNotFound        error = errors.New("multicast: not found")
 	ErrorMulticastHandlerExists   error = errors.New("multicast: handler already exists")
 	ErrorMulticastHandlerNotFound error = errors.New("multicast: handler not found")
 )
 
 // default
-var _srv *multicast
+var _center *multicastCenter
 
 func init() {
-	_srv = new(multicast)
-	_srv.srv = make(map[string]*server)
+	_center = new(multicastCenter)
+	_center.multicasters = make(map[string]*multicast)
 }
 
-// multicast package
-type multicast struct {
+// multicastCenter package
+type multicastCenter struct {
 	mutex sync.Mutex // protecting remaining fields
 
-	srv map[string]*server
+	multicasters map[string]*multicast
 }
 
-func (m *multicast) registerMulticast(addr string, key HandlerKey, hnd Handler) error {
+func New(addr string) (Multicaster, error) {
+	if _center == nil {
+		log.Fatal("multicastCenter multicast not initialize")
+	}
+	return _center.NewMulticast(addr)
+}
+
+func Remove(addr string) error {
+	if _center == nil {
+		log.Fatal("multicastCenter multicast not initialize")
+	}
+	return _center.RemoveMulticast(addr)
+}
+
+func (m *multicastCenter) NewMulticast(addr string) (Multicaster, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	if srv, ok := m.srv[addr]; ok {
-		return srv.RegisterHandler(key, hnd)
+	if mul, ok := m.multicasters[addr]; ok {
+		return mul, nil
 	}
-	srv, err := NewServer(addr)
+	mul, err := NewMulticast(addr)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	m.srv[srv.Addr()] = srv
-	return srv.RegisterHandler(key, hnd)
+	m.multicasters[mul.Addr()] = mul
+	return mul, nil
 }
 
-func (m *multicast) unregisterMulticast(addr string, key HandlerKey) error {
+func (m *multicastCenter) RemoveMulticast(addr string) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	srv, ok := m.srv[addr]
+	mul, ok := m.multicasters[addr]
 	if ok {
-		return ErrorMulticastServerNotFound
+		return ErrorMulticastNotFound
 	}
-	delete(m.srv, addr)
-	srv.Close()
+	delete(m.multicasters, addr)
+	mul.Close()
 	return nil
-}
-
-func RegisterMulticast(addr string, key HandlerKey, hnd Handler) error {
-	return _srv.registerMulticast(addr, key, hnd)
-}
-
-func UnregisterMulticast(addr string, key HandlerKey) error {
-	return _srv.unregisterMulticast(addr, key)
 }
 
 // handler
 type Handler func(src *net.UDPAddr, count int, data []byte)
 type HandlerKey string
 
-type server struct {
-	tomb *tomb.Tomb
+type Multicaster interface {
+	RegisterHandler(key HandlerKey, hnd Handler) error
+	UnregisterHandler(key HandlerKey) error
+	Notify(data []byte) (int, error)
+}
+
+type multicast struct {
+	mutex sync.Mutex
+	tomb  *tomb.Tomb
 
 	addr     *net.UDPAddr
 	handlers map[HandlerKey]Handler
 
 	listener *net.UDPConn
+	sender   *net.UDPConn
 }
 
-func NewServer(a string) (*server, error) {
+func NewMulticast(a string) (*multicast, error) {
 	addr, err := net.ResolveUDPAddr(UDP_PROTOCOL, a)
 	if err != nil {
 		return nil, err
 	}
-	s := new(server)
-	s.tomb = new(tomb.Tomb)
-	s.addr = addr
-	s.handlers = make(map[HandlerKey]Handler)
-	// serve
+	m := new(multicast)
+	m.tomb = new(tomb.Tomb)
+	m.addr = addr
+	m.handlers = make(map[HandlerKey]Handler)
+	// initialize sender
+	c, err := net.DialUDP(UDP_PROTOCOL, nil, addr)
+	if err != nil {
+		return nil, err
+	}
+	m.sender = c
+	// reciver
 	go func() {
-		defer s.tomb.Done()
-		s.tomb.Kill(s.serve())
+		defer m.tomb.Done()
+		m.tomb.Kill(m.serve())
 	}()
-	return s, nil
+	return m, nil
 }
 
-func (s *server) Close() {
-	s.tomb.Kill(nil)
-	s.cleanAll()
+func (m *multicast) Close() {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.tomb.Kill(nil)
+	m.cleanAll()
 }
 
-func (s *server) Addr() string {
-	return s.addr.String()
+func (m *multicast) Addr() string {
+	return m.addr.String()
 }
 
-func (s *server) RegisterHandler(key HandlerKey, hnd Handler) error {
-	if _, ok := s.handlers[key]; ok {
+func (m *multicast) RegisterHandler(key HandlerKey, hnd Handler) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	if _, ok := m.handlers[key]; ok {
 		return ErrorMulticastHandlerExists
 	}
-	s.handlers[key] = hnd
+	m.handlers[key] = hnd
 	return nil
 }
 
-func (s *server) UnregisterHandler(key HandlerKey) error {
-	if _, ok := s.handlers[key]; !ok {
+func (m *multicast) UnregisterHandler(key HandlerKey) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	if _, ok := m.handlers[key]; !ok {
 		return ErrorMulticastHandlerNotFound
 	}
-	delete(s.handlers, key)
+	delete(m.handlers, key)
 	return nil
 }
 
-func (s *server) cleanAll() {
-	s.handlers = nil
+func (m *multicast) cleanAll() {
+	m.handlers = nil
 }
 
-func (s *server) serve() error {
-	l, err := net.ListenMulticastUDP(UDP_PROTOCOL, nil, s.addr)
+func (m *multicast) serve() error {
+	l, err := net.ListenMulticastUDP(UDP_PROTOCOL, nil, m.addr)
 	if err != nil {
 		return err
 	}
+	m.listener = l
 	l.SetReadBuffer(maxDatagramSize)
 
 	for {
@@ -142,13 +170,13 @@ func (s *server) serve() error {
 		}
 
 		// dispatch
-		for _, hnd := range s.handlers {
+		for _, hnd := range m.handlers {
 			go hnd(src, n, b)
 		}
 
 		// judge
 		select {
-		case <-s.tomb.Dying():
+		case <-m.tomb.Dying():
 			return nil
 		default:
 			// continue
@@ -156,17 +184,10 @@ func (s *server) serve() error {
 	}
 }
 
-// broadcast
-func Notify(a string, data []byte) (int, error) {
-	addr, err := net.ResolveUDPAddr(UDP_PROTOCOL, a)
-	if err != nil {
-		return 0, err
-	}
-	c, err := net.DialUDP(UDP_PROTOCOL, nil, addr)
-	if err != nil {
-		return 0, err
-	}
-	n, err := c.Write(data)
+func (m *multicast) Notify(data []byte) (int, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	n, err := m.sender.Write(data)
 	if err != nil {
 		return 0, err
 	}

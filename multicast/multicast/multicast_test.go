@@ -17,10 +17,10 @@ func msgHandler(src *net.UDPAddr, n int, data []byte) {
 	log.Println(hex.Dump(data[:n]))
 }
 
-func msgSend(t *testing.T, c chan int) {
+func msgSend(t *testing.T, mul Multicaster, c chan int) {
 	var count int
 	for count = 0; count < 5; count++ {
-		n, err := Notify(addSrv, []byte("Hello, world."))
+		n, err := mul.Notify([]byte("Hello, world."))
 		if n != 13 {
 			t.Errorf("msg send %d not %d", n, 13)
 		}
@@ -34,12 +34,12 @@ func msgSend(t *testing.T, c chan int) {
 
 func TestMulticastServer(t *testing.T) {
 	c := make(chan int)
-	srv, err := NewServer(addSrv)
+	mul, err := NewMulticast(addSrv)
 	if err != nil {
-		t.Errorf("new server error: %s", err)
+		t.Errorf("new multicaster error: %s", err)
 	}
-	go msgSend(t, c)
-	err = srv.RegisterHandler("msgHandler", msgHandler)
+	go msgSend(t, mul, c)
+	err = mul.RegisterHandler("msgHandler", msgHandler)
 	if err != nil {
 		t.Errorf("register handler error: %s", err)
 	}
@@ -51,11 +51,15 @@ func TestMulticastServer(t *testing.T) {
 
 func TestMulticast(t *testing.T) {
 	c := make(chan int)
-	err := RegisterMulticast(addSrv, "msgHandler", msgHandler)
+	mul, err := New(addSrv)
 	if err != nil {
 		t.Errorf("register multicast error: %s", err)
 	}
-	go msgSend(t, c)
+	err = mul.RegisterHandler("msgHandler", msgHandler)
+	if err != nil {
+		t.Errorf("register handler error: %s", err)
+	}
+	go msgSend(t, mul, c)
 	nn := <-c
 	if nn != 5 {
 		t.Errorf("message send %d got %d", 5, nn)

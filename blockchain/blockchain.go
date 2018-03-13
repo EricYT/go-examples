@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+// TODO:
+// 1. the implement are bad codes, because it's not
+//    friendly for testing. time.Now() is a side effect
+//    function, we cant generate a same ancestor block,
+//    so we cant testing it.
+
 var (
 	ErrorWrongIndex    error = errors.New("block chain: index wrong")
 	ErrorWrongPrevHash error = errors.New("block chain: previous hash wrong")

@@ -5,6 +5,23 @@ import (
 	"math"
 )
 
+// match background
+/*
+key = [5, 9, 13] n = 4
+key % n = 1
+
+n = n * 2
+5 % 8 = 5
+9 % 8 = 1
+13 % 8 = 5
+
+so =>
+key % n = M
+key % 2n = M or M+n
+
+rehash just bother current bucket and new bucket
+*/
+
 // a every simple implement
 // linear hashing site: https://en.wikipedia.org/wiki/Linear_hashing
 type LinearHashing struct {

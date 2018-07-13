@@ -1,38 +1,66 @@
-package main
+package signal
 
 import (
-	"fmt"
-	"log"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 )
 
-func main() {
-	f, err := os.OpenFile("testlogfile", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
-	if err != nil {
-		panic(fmt.Sprintf("error opening file: %v", err))
+var ErrStop error = errors.New("signal: signal term receive")
 
+// signal function handle
+type SignalHandleFunc func(os.Signal) error
+
+// signal function registers
+// TODO: maybe for every one signal, there is more than one handle need to
+// capture it.
+var handles = make(map[os.Signal]SignalHandleFunc)
+
+func init() {
+	// default capture TERM signal
+	handles[syscall.SIGTERM] = sigtermDefaultHandle
+}
+
+func sigtermDefaultHandle(os.Signal) error {
+	return ErrStop
+}
+
+// reset
+func ResetHandles() {
+	handles = make(map[os.Signal]SignalHandleFunc)
+}
+
+// set handle for signals which one we want to
+// capture it.
+func SetHandleForSignals(handle SignalHandleFunc, signals ...os.Signal) {
+	for _, signal := range signals {
+		handles[signal] = handle
 	}
-	defer f.Close()
+}
 
-	log.SetOutput(f)
-	log.Println("This is a test log entry")
-
-	log.Println("Catch kill signal")
-	fmt.Println("Wait a kill signal")
-
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	//signal.Notify(interrupt, syscall.SIGTERM)
-	//signal.Notify(interrupt, syscall.SIGHUP)
-
-	select {
-	case s := <-interrupt:
-		log.Println("get kill signal:", time.Now())
-		log.Printf("get singal:%+v", s)
-		time.Sleep(time.Second * 10)
-		log.Println("stop time:", time.Now())
+// Wait for signals
+func ServeHandleSignals() (err error) {
+	var signals = make([]os.Signal, 0, len(handles))
+	for sig, _ := range handles {
+		signals = append(signals, sig)
 	}
+
+	signalChan := make(chan os.Signal, 8)
+	signal.Notify(signalChan, signals...)
+
+	for sig := range signalChan {
+		err = handles[sig](sig)
+		if err != nil {
+			break
+		}
+	}
+
+	signal.Stop(signalChan)
+
+	if err == ErrStop {
+		err = nil
+	}
+
+	return
 }

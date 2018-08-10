@@ -38,11 +38,7 @@ func (l *lockGroup) Lock() {
 
 	cases := make([]reflect.SelectCase, len(l.lockers))
 	for i, locker := range l.lockers {
-		ch := make(chan struct{})
-		go func(lock Locker, c chan struct{}) {
-			lock.Lock()
-			close(c)
-		}(locker, ch)
+		ch := LockPrepare(locker)
 		cases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ch)}
 	}
 	// Waiting all locks are awake.
@@ -108,7 +104,7 @@ func (l *rlock) Add() {
 	l.lockers++
 }
 
-func (l *rlock) Lock() {
+func (l *rlock) LockPrepare() <-chan struct{} {
 	l.mutex.Lock()
 	if l.lockers == 0 {
 		panic("not add lock")
@@ -116,8 +112,12 @@ func (l *rlock) Lock() {
 	l.locked = true
 	l.mutex.Unlock()
 
+	return l.parent
+}
+
+func (l *rlock) Lock() {
 	// wait the parent release the lock firstly.
-	<-l.parent
+	<-l.LockPrepare()
 }
 
 func (l *rlock) Unlock() {
@@ -158,9 +158,13 @@ func (l *lock) Wait() <-chan struct{} {
 	return l.release
 }
 
-func (l *lock) Lock() {
+func (l *lock) LockPrepare() <-chan struct{} {
 	atomic.CompareAndSwapInt32(&l.locked, 0, 1)
-	<-l.parent
+	return l.parent
+}
+
+func (l *lock) Lock() {
+	<-l.LockPrepare()
 }
 
 func (l *lock) Unlock() {
@@ -191,4 +195,14 @@ func MustWaiter(l Locker) <-chan struct{} {
 		return w.Wait()
 	}
 	panic("locker not implement Wait method")
+}
+
+func LockPrepare(l Locker) <-chan struct{} {
+	type LockPreparer interface {
+		LockPrepare() <-chan struct{}
+	}
+	if lock, ok := l.(LockPreparer); ok {
+		return lock.LockPrepare()
+	}
+	panic("locker in lock group should be read or write lock")
 }

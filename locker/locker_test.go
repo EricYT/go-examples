@@ -1,6 +1,7 @@
 package locker
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -142,6 +143,51 @@ func TestLockGroup(t *testing.T) {
 		lg.Unlock()
 		waitChanImmediately(t, MustWaiter(lockers[0]))
 		waitChanImmediately(t, MustWaiter(lockers[1]))
+	})
+
+	t.Run("unlock before locking", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil || (r.(string) != "unlock item before holding it") {
+				assert.Fail(t, "not lock before unlocking")
+			}
+		}()
+		lock := NewLockGroup(nil, []Locker{})
+		lock.Unlock()
+	})
+}
+
+func TestLockPipe(t *testing.T) {
+	t.Run("normal pipe", func(t *testing.T) {
+		var count int
+		var wg sync.WaitGroup
+		wg.Add(3)
+		r1 := NewRLock(nil, 1)
+		r1.Add()
+		go func() {
+			defer wg.Done()
+			r1.Lock()
+			count++
+			r1.Unlock()
+		}()
+		r2 := NewRLock(r1, 2)
+		r2.Add()
+		go func() {
+			defer wg.Done()
+			r2.Lock()
+			count++
+			r2.Unlock()
+		}()
+
+		w1 := NewLock(r2, 3)
+		go func() {
+			defer wg.Done()
+			w1.Lock()
+			count++
+			w1.Unlock()
+		}()
+		wg.Wait()
+		assert.Equal(t, 3, count)
+		waitChanImmediately(t, w1.Wait())
 	})
 }
 

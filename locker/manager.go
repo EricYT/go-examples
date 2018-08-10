@@ -25,18 +25,18 @@ func (lm *LockManagerService) LockItems(items ...LockItem) Locker {
 	lm.mutex.Lock()
 	defer lm.mutex.Unlock()
 
+	validateLockItems(items)
 	var lockers = make([]Locker, len(items))
 	for i, item := range items {
 		lockers[i] = lm.lockItem(item)
 	}
-	groupLocker := NewLockGroup(items, lockers)
-	return groupLocker
+	return NewLockGroup(items, lockers)
 }
 
 func (lm *LockManagerService) lockItem(item LockItem) Locker {
-	// read lock
+	l, ok := lm.items[item.Item]
 	if item.Type == LockTypeRead {
-		l, ok := lm.items[item.Item]
+		// read lock
 		if !ok || (ok && !IsRLock(l)) {
 			locker := NewRLock(l, item.Item)
 			lm.items[item.Item] = locker
@@ -48,17 +48,13 @@ func (lm *LockManagerService) lockItem(item LockItem) Locker {
 		rlocker := l.(Adder)
 		rlocker.Add()
 		return l
-	}
-
-	// write lock
-	if item.Type == LockTypeWrite {
-		l, _ := lm.items[item.Item]
+	} else if item.Type == LockTypeWrite {
+		// write lock
 		tailer := NewLock(l, item.Item)
 		lm.items[item.Item] = tailer
 		return tailer
 	}
-
-	panic("unknow lock type")
+	return nil
 }
 
 type LockItemType int8
@@ -71,4 +67,15 @@ const (
 type LockItem struct {
 	Type LockItemType
 	Item interface{}
+}
+
+func validateLockItems(items []LockItem) {
+	for _, item := range items {
+		switch item.Type {
+		case LockTypeRead:
+		case LockTypeWrite:
+		default:
+			panic("unknow lock type")
+		}
+	}
 }

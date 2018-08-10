@@ -1,4 +1,4 @@
-package pubsub
+package pubsub_test
 
 import (
 	"fmt"
@@ -7,10 +7,12 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/EricYT/go-examples/pubsub"
 )
 
 const (
-	topic Topic = "test-topic"
+	topic pubsub.Topic = "test-topic"
 )
 
 func waitForMessagehandlingToBeComplete(done <-chan struct{}, t *testing.T) {
@@ -22,15 +24,15 @@ func waitForMessagehandlingToBeComplete(done <-chan struct{}, t *testing.T) {
 }
 
 func TestPublish(t *testing.T) {
-	hub := NewSimplehub()
+	hub := pubsub.NewSimplehub()
 	done := hub.Publish(topic, nil)
 	waitForMessagehandlingToBeComplete(done, t)
 }
 
 func TestSubscribe(t *testing.T) {
 	var called bool
-	hub := NewSimplehub()
-	hub.Subscribe(topic, func(topic_ Topic, data interface{}) {
+	hub := pubsub.NewSimplehub()
+	unsubscriber := hub.Subscribe(topic, func(topic_ pubsub.Topic, data interface{}) {
 		if topic != topic_ {
 			t.Fatalf("topic shuold equal %s", topic)
 		}
@@ -39,17 +41,28 @@ func TestSubscribe(t *testing.T) {
 		}
 		called = true
 	})
-	done := hub.Publish(topic, nil)
-	waitForMessagehandlingToBeComplete(done, t)
-	if !called {
-		t.Fatalf("publish handle not be called")
-	}
+	t.Run("publish", func(t *testing.T) {
+		done := hub.Publish(topic, nil)
+		waitForMessagehandlingToBeComplete(done, t)
+		if !called {
+			t.Fatalf("publish handle not be called")
+		}
+	})
+	t.Run("unsubscribe", func(t *testing.T) {
+		called = false
+		unsubscriber.Unsubscribe()
+		done := hub.Publish(topic, nil)
+		waitForMessagehandlingToBeComplete(done, t)
+		if called {
+			t.Fatalf("publish handle shouldn't be called again.")
+		}
+	})
 }
 
 func TestPublishCompleterWait(t *testing.T) {
 	wait := make(chan struct{})
-	hub := NewSimplehub()
-	hub.Subscribe(topic, func(topic Topic, data interface{}) {
+	hub := pubsub.NewSimplehub()
+	hub.Subscribe(topic, func(topic pubsub.Topic, data interface{}) {
 		<-wait
 	})
 	done := hub.Publish(topic, nil)
@@ -65,18 +78,18 @@ func TestPublishCompleterWait(t *testing.T) {
 
 func TestSubscriberExecInOrder(t *testing.T) {
 	mutex := sync.Mutex{}
-	hub := NewSimplehub()
-	var calls []Topic
-	hub.Subscribe(MatchRegexp("test.*"), func(topic Topic, data interface{}) {
+	hub := pubsub.NewSimplehub()
+	var calls []pubsub.Topic
+	hub.Subscribe(pubsub.MatchRegexp("test.*"), func(topic pubsub.Topic, data interface{}) {
 		mutex.Lock()
 		defer mutex.Unlock()
 		calls = append(calls, topic)
 	})
 
 	var lastdone <-chan struct{}
-	var rightCalls []Topic
+	var rightCalls []pubsub.Topic
 	for index := 0; index < 10; index++ {
-		topc := Topic(fmt.Sprintf("test.%d", index))
+		topc := pubsub.Topic(fmt.Sprintf("test.%d", index))
 		rightCalls = append(rightCalls, topc)
 		lastdone = hub.Publish(topc, nil)
 	}
@@ -88,8 +101,8 @@ func TestSubscriberExecInOrder(t *testing.T) {
 
 func TestPublishNotBlockedByHandleFunc(t *testing.T) {
 	wait := make(chan struct{})
-	hub := NewSimplehub()
-	hub.Subscribe(topic, func(t Topic, d interface{}) {
+	hub := pubsub.NewSimplehub()
+	hub.Subscribe(topic, func(t pubsub.Topic, d interface{}) {
 		<-wait
 		log.Printf("subscriber receive data: %+v", d)
 	})

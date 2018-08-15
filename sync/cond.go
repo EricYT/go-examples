@@ -21,24 +21,23 @@ func NewFoo() *Foo {
 }
 
 func (f *Foo) Wait(n int) {
-	f.finishCond.L.Lock()
 	for f.finished < n {
-		log.Println("foo wait finished ", f.finished, " now: ", time.Now())
+		f.mu.Lock()
 		f.finishCond.Wait()
-		time.Sleep(time.Second * 2)
+		log.Println("foo wait finished ", f.finished, " now: ", time.Now())
+		f.mu.Unlock()
 	}
-	f.finishCond.L.Unlock()
 }
 
 func (f *Foo) run() {
 	log.Println("foo run ...")
 
 	for {
-		f.finishCond.L.Lock()
+		f.mu.Lock()
 		f.finished++
 		log.Println("foo run loop finished: ", f.finished, " now: ", time.Now())
 		f.finishCond.Broadcast()
-		f.finishCond.L.Unlock()
+		f.mu.Unlock()
 		time.Sleep(time.Second)
 	}
 }

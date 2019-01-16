@@ -52,7 +52,7 @@ func TestValueStoreWrite(t *testing.T) {
 func TestValueStoreRead(t *testing.T) {
 	opts := Opts{
 		LoadingMode:         MemoryMap,
-		FileBlockMaxSize:    20,
+		FileBlockMaxSize:    50,
 		FileBlockMaxEntries: 20,
 		SyncedFileIO:        true,
 	}

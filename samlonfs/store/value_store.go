@@ -56,6 +56,7 @@ func (vs *ValueStore) Load() error {
 		if err != nil {
 			return errors.Wrap(err, "Unable to initialize the first log file")
 		}
+		atomic.StoreUint32(&vs.maxFid, 1)
 	}
 
 	return nil
@@ -103,6 +104,8 @@ func (vs *ValueStore) createLogFile(fid uint32) (lf *logFile, err error) {
 		loadingMode: vs.opts.LoadingMode,
 	}
 	log.Printf("Value store prepare to create log file. fid: %d filepath: %s", lf.fid, lf.path)
+	atomic.StoreUint32(&vs.writableBlockOffset, 0)
+	vs.numEntriesWritten = 0
 
 	// FIXME: Maybe we can truncate file for better writing in XFS.
 	lf.fd, err = OpenSyncedFile(lf.path, vs.opts.SyncedFileIO)
@@ -117,12 +120,9 @@ func (vs *ValueStore) createLogFile(fid uint32) (lf *logFile, err error) {
 		lf.fd.Close()
 		return nil, errors.Wrapf(err, "Unable to mmap file %s", lf.path)
 	}
-	vs.writableBlockOffset = 0
-	vs.numEntriesWritten = 0
 
 	vs.filesLock.Lock()
 	vs.filesMap[fid] = lf
-	atomic.StoreUint32(&vs.maxFid, fid)
 	vs.filesLock.Unlock()
 
 	return lf, nil
@@ -177,7 +177,7 @@ func (vs *ValueStore) Write(req *request) (err error) {
 		if err != nil {
 			return errors.Wrapf(err, "Unable to encode entry %d", e.BId)
 		}
-		vs.numEntriesWritten += uint32(len(req.Ents))
+		vs.numEntriesWritten += 1
 		req.Ptrs = append(req.Ptrs, vp)
 		writeNow :=
 			vs.woffset()+uint32(buf.Len()) > uint32(vs.opts.FileBlockMaxSize) ||

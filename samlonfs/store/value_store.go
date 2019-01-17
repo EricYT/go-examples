@@ -1,10 +1,18 @@
 package store
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/binary"
 	"fmt"
+	"hash/crc32"
+	"io"
+	"io/ioutil"
 	"log"
 	"os"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -36,37 +44,119 @@ type ValueStore struct {
 
 func NewValueStore(dir string, opts Opts) *ValueStore {
 	e := &ValueStore{
-		opts:     opts,
-		dirPath:  dir,
-		filesMap: make(map[uint32]*logFile),
+		opts:    opts,
+		dirPath: dir,
 	}
-
 	return e
 }
 
 func (vs *ValueStore) Load() error {
-	log.Println("value store loading...")
-
 	if err := vs.populateFilesMap(); err != nil {
 		return errors.Wrap(err, "Unable to populate files map")
 	}
-
-	if vs.maxFid == 0 {
-		_, err := vs.createLogFile(1)
+	// zero files exist
+	if len(vs.filesMap) == 0 {
+		_, err := vs.createLogFile(0)
 		if err != nil {
 			return errors.Wrap(err, "Unable to initialize the first log file")
 		}
-		atomic.StoreUint32(&vs.maxFid, 1)
+		return nil
+	}
+
+	filesId := vs.sortedFilesId()
+	for _, fileId := range filesId {
+		lf := vs.filesMap[fileId]
+		if err := lf.openReadOnly(); err != nil {
+			return errors.Wrapf(err, "Unable to open log file %q", lf.path)
+		}
+	}
+
+	// appending a new log file for current writing
+	// FIXME: we don't use the last one file any more, in case
+	// something wrong cause we modified the file.
+	maxFid := atomic.AddUint32(&vs.maxFid, 1)
+	_, err := vs.createLogFile(maxFid)
+	if err != nil {
+		return errors.Wrapf(err, "Unable to create the current writing file %q", vs.fpath(maxFid))
 	}
 
 	return nil
+}
+
+func (vs *ValueStore) Close() error {
+	for _, lf := range vs.filesMap {
+		if err := lf.sync(); err != nil {
+			return errors.Wrapf(err, "Unable to sync file %q", lf.path)
+		}
+		if err := lf.munmap(); err != nil {
+			return errors.Wrapf(err, "Unable to munmap file %q", lf.path)
+		}
+		if err := lf.fd.Close(); err != nil {
+			return errors.Wrapf(err, "Unable to close file %q", lf.path)
+		}
+	}
+	return nil
+}
+
+func (vs *ValueStore) sortedFilesId() []uint32 {
+	// FIXME: maybe there is a list contains ready to delete files.
+	filesId := make([]uint32, 0, len(vs.filesMap))
+	for fileId, _ := range vs.filesMap {
+		filesId = append(filesId, fileId)
+	}
+	sort.Slice(filesId, func(i, j int) bool {
+		return filesId[i] < filesId[j]
+	})
+	return filesId
 }
 
 func logFilePath(dirPath string, fid uint32) string {
 	return fmt.Sprintf("%s%s%06d.data", dirPath, string(os.PathSeparator), fid)
 }
 
+func (vs *ValueStore) fpath(fid uint32) string {
+	return logFilePath(vs.dirPath, fid)
+}
+
 func (vs *ValueStore) populateFilesMap() error {
+	vs.filesMap = make(map[uint32]*logFile)
+	files, err := ioutil.ReadDir(vs.dirPath)
+	if err != nil {
+		return errors.Wrapf(err, "Unable to read directory %q", vs.dirPath)
+	}
+
+	found := make(map[uint64]struct{})
+	for i := range files {
+		file := files[i]
+		if file.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(file.Name(), ".data") {
+			continue
+		}
+
+		fsz := len(file.Name())
+		fid, err := strconv.ParseUint(file.Name()[:fsz-5], 10, 32)
+		if err != nil {
+			return fmt.Errorf("Unable to parse file %q id. %v", file.Name(), err)
+		}
+		// FIXME: The file system ensure just one file with same name can exists.
+		if _, ok := found[fid]; ok {
+			return fmt.Errorf("Duplicated file %q found", file.Name())
+		}
+		found[fid] = struct{}{}
+
+		lf := &logFile{
+			fid:         uint32(fid),
+			path:        vs.fpath(uint32(fid)),
+			loadingMode: vs.opts.LoadingMode,
+		}
+		vs.filesMap[uint32(fid)] = lf
+		if lf.fid > vs.maxFid {
+			vs.maxFid = lf.fid
+		}
+	}
+
 	return nil
 }
 
@@ -99,26 +189,26 @@ func (vs *ValueStore) woffset() uint32 {
 
 func (vs *ValueStore) createLogFile(fid uint32) (lf *logFile, err error) {
 	lf = &logFile{
-		path:        logFilePath(vs.dirPath, fid),
+		path:        vs.fpath(fid),
 		fid:         fid,
 		loadingMode: vs.opts.LoadingMode,
 	}
-	log.Printf("Value store prepare to create log file. fid: %d filepath: %s", lf.fid, lf.path)
+	//log.Printf("Value store prepare to create log file. fid: %d filepath: %q", lf.fid, lf.path)
 	atomic.StoreUint32(&vs.writableBlockOffset, 0)
 	vs.numEntriesWritten = 0
 
 	// FIXME: Maybe we can truncate file for better writing in XFS.
 	lf.fd, err = OpenSyncedFile(lf.path, vs.opts.SyncedFileIO)
 	if err != nil {
-		return nil, errors.Wrapf(err, "Unable to open file %s", lf.path)
+		return nil, errors.Wrapf(err, "Unable to open file %q", lf.path)
 	}
 	if err := SyncDir(vs.dirPath); err != nil {
 		lf.fd.Close()
-		return nil, errors.Wrapf(err, "Unable to sync dir %s for create file %s", vs.dirPath, lf.path)
+		return nil, errors.Wrapf(err, "Unable to sync dir %q for create file %q", vs.dirPath, lf.path)
 	}
 	if err := lf.mmap(2 * vs.opts.FileBlockMaxSize); err != nil {
 		lf.fd.Close()
-		return nil, errors.Wrapf(err, "Unable to mmap file %s", lf.path)
+		return nil, errors.Wrapf(err, "Unable to mmap file %q", lf.path)
 	}
 
 	vs.filesLock.Lock()
@@ -147,8 +237,6 @@ func (vs *ValueStore) Write(req *request) (err error) {
 		}
 		buf.Reset()
 
-		log.Printf("Write entry count: %d writableBlockOffset: %d", nr, vs.writableBlockOffset)
-
 		atomic.AddUint32(&vs.writableBlockOffset, uint32(nr))
 
 		if vs.numEntriesWritten >= vs.opts.FileBlockMaxEntries ||
@@ -169,7 +257,6 @@ func (vs *ValueStore) Write(req *request) (err error) {
 	for i := range req.Ents {
 		e := req.Ents[i]
 
-		log.Printf("Write entry. bid: %d len: %d", e.BId, len(e.Data))
 		var vp valuePointer
 		vp.Fid = currlf.fid
 		vp.Offset = vs.woffset() + uint32(buf.Len())
@@ -237,6 +324,100 @@ func (vs *ValueStore) getFileRLocked(fid uint32) (*logFile, error) {
 	return lf, nil
 }
 
+var (
+	ErrStop = errors.New("iterate stop")
+)
+
+type valueEntry func(e *Entry, vp valuePointer) error
+
+type safeRead struct {
+	bid uint64
+	v   []byte
+
+	recordOffset uint32
+}
+
+func (r *safeRead) Entry(reader *bufio.Reader) (*Entry, error) {
+	var hbuf [headerSize]byte
+
+	hash := crc32.New(CastagnoliTable)
+	tee := io.TeeReader(reader, hash)
+
+	if _, err := io.ReadFull(tee, hbuf[:]); err != nil {
+		return nil, err
+	}
+	var head header
+	head.Decode(hbuf[:])
+	if cap(r.v) < int(head.dlen) {
+		r.v = make([]byte, int(2*head.dlen))
+	}
+
+	e := &Entry{}
+	e.BId = head.bid
+	e.Data = r.v[:head.dlen]
+
+	if _, err := io.ReadFull(tee, e.Data); err != nil {
+		return nil, err
+	}
+
+	var crcbuf [crc32.Size]byte
+	if _, err := reader.Read(crcbuf[:]); err != nil {
+		return nil, err
+	}
+	crc := binary.BigEndian.Uint32(crcbuf[:])
+	if crc != hash.Sum32() {
+		return nil, ErrCrcInvalid
+	}
+
+	return e, nil
+}
+
+func (vs *ValueStore) iterate(lf *logFile, offset uint32, fn valueEntry) (eof uint32, err error) {
+	stat, err := lf.fd.Stat()
+	if err != nil {
+		return 0, err
+	}
+	if int64(offset) >= stat.Size() {
+		return 0, ErrEOF
+	}
+	if _, err := lf.fd.Seek(int64(offset), io.SeekStart); err != nil {
+		return 0, errors.Wrapf(err, "Unable to seek file %q", lf.path)
+	}
+
+	reader := bufio.NewReader(lf.fd)
+	read := &safeRead{
+		v: make([]byte, 10), // maybe 1M
+	}
+
+	var validEof uint32
+	for {
+		var entry *Entry
+		entry, err = read.Entry(reader)
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			break
+		}
+		if err != nil {
+			return validEof, err
+		}
+
+		var vp valuePointer
+		vp.Fid = lf.fid
+		vp.Offset = read.recordOffset
+		vp.Len = uint32(headerSize + len(entry.Data) + crc32.Size)
+
+		if err = fn(entry, vp); err != nil {
+			if err == ErrStop {
+				break
+			}
+			return validEof, err
+		}
+		read.recordOffset += vp.Len
+		validEof = read.recordOffset
+	}
+
+	return validEof, nil
+}
+
 type logFile struct {
 	path string
 
@@ -255,7 +436,7 @@ var (
 )
 
 func (f *logFile) read(vp valuePointer, s *Slice) (buf []byte, err error) {
-	log.Printf("log file read. fid: %d len: %d offset: %d fmap: %d", vp.Fid, vp.Len, vp.Offset, len(f.fmap))
+	//log.Printf("log file read. fid: %d len: %d offset: %d fmap: %d", vp.Fid, vp.Len, vp.Offset, len(f.fmap))
 
 	var nbr int64
 	offset := vp.Offset
@@ -276,7 +457,8 @@ func (f *logFile) read(vp valuePointer, s *Slice) (buf []byte, err error) {
 			nbr = int64(valsz)
 		}
 	}
-	log.Printf("read count: %d", nbr)
+	_ = nbr
+	//log.Printf("read count: %d", nbr)
 	return buf, err
 }
 

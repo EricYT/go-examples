@@ -56,8 +56,8 @@ func encodeEntry(e *Entry, buf *bytes.Buffer) (n uint32, err error) {
 	buf.Write(head[:])
 	hash.Write(head[:])
 
-	buf.Write(e.Data[:])
-	hash.Write(e.Data[:])
+	buf.Write(e.Data)
+	hash.Write(e.Data)
 
 	// crc32
 	var crc [crc32.Size]byte

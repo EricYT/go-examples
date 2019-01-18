@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -23,6 +24,14 @@ var (
 	ErrLogFileNotFound error = errors.New("log file not found")
 	ErrCrcInvalid      error = errors.New("crc invalid")
 )
+
+var (
+	ErrValuePointerNotFound error = errors.New("value pointer not found")
+)
+
+type IndexEngine interface {
+	Get(bid uint64) (valuePointer, error)
+}
 
 type ValueStore struct {
 	opts    Opts
@@ -39,13 +48,18 @@ type ValueStore struct {
 	// gc
 	filesToBeDeleted []uint32
 
+	runGC chan struct{}
+
 	// FIXME: index engine for checking whether any one holding this data now.
+	indexEngine IndexEngine
 }
 
-func NewValueStore(dir string, opts Opts) *ValueStore {
+func NewValueStore(dir string, opts Opts, ie IndexEngine) *ValueStore {
 	e := &ValueStore{
-		opts:    opts,
-		dirPath: dir,
+		opts:        opts,
+		dirPath:     dir,
+		runGC:       make(chan struct{}, 1),
+		indexEngine: ie,
 	}
 	return e
 }
@@ -99,9 +113,15 @@ func (vs *ValueStore) Close() error {
 }
 
 func (vs *ValueStore) sortedFilesId() []uint32 {
-	// FIXME: maybe there is a list contains ready to delete files.
+	filesToBeDeleted := make(map[uint32]struct{})
+	for i := range vs.filesToBeDeleted {
+		filesToBeDeleted[vs.filesToBeDeleted[i]] = struct{}{}
+	}
 	filesId := make([]uint32, 0, len(vs.filesMap))
 	for fileId, _ := range vs.filesMap {
+		if _, ok := filesToBeDeleted[fileId]; ok {
+			continue
+		}
 		filesId = append(filesId, fileId)
 	}
 	sort.Slice(filesId, func(i, j int) bool {
@@ -218,6 +238,9 @@ func (vs *ValueStore) createLogFile(fid uint32) (lf *logFile, err error) {
 	return lf, nil
 }
 
+// FIXME: Now, it's not thread-safe function.
+// Maybe it's better way to allocate the offset for current
+// writing.
 func (vs *ValueStore) Write(req *request) (err error) {
 	vs.filesLock.RLock()
 	currFid := atomic.LoadUint32(&vs.maxFid)
@@ -279,6 +302,7 @@ func (vs *ValueStore) Write(req *request) (err error) {
 	return toDisk()
 }
 
+// FIXME: thread-safe
 func (vs *ValueStore) Read(vp valuePointer, s *Slice) ([]byte, func(), error) {
 	maxFid := atomic.LoadUint32(&vs.maxFid)
 	if vp.Fid == maxFid && vp.Offset >= vs.woffset() {
@@ -338,11 +362,10 @@ type safeRead struct {
 }
 
 func (r *safeRead) Entry(reader *bufio.Reader) (*Entry, error) {
-	var hbuf [headerSize]byte
-
 	hash := crc32.New(CastagnoliTable)
 	tee := io.TeeReader(reader, hash)
 
+	var hbuf [headerSize]byte
 	if _, err := io.ReadFull(tee, hbuf[:]); err != nil {
 		return nil, err
 	}
@@ -361,7 +384,7 @@ func (r *safeRead) Entry(reader *bufio.Reader) (*Entry, error) {
 	}
 
 	var crcbuf [crc32.Size]byte
-	if _, err := reader.Read(crcbuf[:]); err != nil {
+	if _, err := io.ReadFull(reader, crcbuf[:]); err != nil {
 		return nil, err
 	}
 	crc := binary.BigEndian.Uint32(crcbuf[:])
@@ -418,6 +441,124 @@ func (vs *ValueStore) iterate(lf *logFile, offset uint32, fn valueEntry) (eof ui
 	return validEof, nil
 }
 
+var (
+	ErrDataMissing error = errors.New("data missing")
+)
+
+func (vs *ValueStore) pickLogFiles(head valuePointer, ratio float64) (lfs []*logFile, err error) {
+	maxFid := atomic.LoadUint32(&vs.maxFid)
+	writeOffset := atomic.LoadUint32(&vs.writableBlockOffset)
+	if head.Fid > maxFid || (head.Fid == maxFid && head.Offset > writeOffset) {
+		return nil, ErrDataMissing
+	}
+
+	// From the oldest file
+	sortedFilesId := vs.sortedFilesId()
+	for i := range sortedFilesId {
+		fileId := sortedFilesId[i]
+		if fileId > head.Fid {
+			continue
+		}
+
+		vs.filesLock.RLock()
+		lf, ok := vs.filesMap[fileId]
+		vs.filesLock.RUnlock()
+		if !ok {
+			log.Printf("value store pick log file %d missing", fileId)
+			// Continue or die
+			continue
+		}
+
+		var discard uint32
+		eofOffset, err := vs.iterate(lf, 0, func(entry *Entry, vp valuePointer) error {
+			if vp.Fid == head.Fid && vp.Offset >= head.Offset {
+				return ErrStop
+			}
+
+			bid := entry.BId
+			currvp, err := vs.indexEngine.Get(bid)
+			if err != nil {
+				if ErrValuePointerNotFound == err {
+					discard += vp.Len
+					return nil
+				}
+				return errors.Wrapf(err, "Unable to get %d value pointer from index", bid)
+			}
+
+			if currvp.Fid > vp.Fid {
+				// the entry already move to the head
+				discard += vp.Len
+			} else if currvp.Fid == vp.Fid {
+				if currvp.Offset > vp.Offset {
+					// the entry already move to the head
+					discard += vp.Len
+				}
+			}
+			// FIXME: small than the index store ? Damn it.
+
+			return nil
+		})
+		if err != nil {
+			log.Printf("value store iterate file %q fail. %v", lf.path, err)
+			return nil, err
+		}
+		if eofOffset == 0 {
+			// Empty file
+			log.Printf("value store got a empty log file %q", lf.path)
+			lfs = append(lfs, lf)
+			continue
+		}
+
+		sparseRatio := float64(discard) / float64(eofOffset)
+		log.Printf("value store file %q discard: %d log size: %d sparse ratio: %f target ratio: %f", lf.path, discard, eofOffset, sparseRatio, ratio)
+		if sparseRatio >= ratio {
+			lfs = append(lfs, lf)
+		}
+	}
+
+	return lfs, nil
+}
+
+func (vs *ValueStore) runGCLogFile(lf *logFile, ratio float64) error {
+	log.Printf("value store ready to gc log file %q", lf.path)
+	// FIXME: not implement
+	return nil
+}
+
+var (
+	ErrGCRunning error = errors.New("gc running")
+)
+
+// GC
+func (vs *ValueStore) RunGC(head valuePointer, ratio float64) error {
+	log.Printf("value store ready to run gc head: %#v ratio: %f", head, ratio)
+	select {
+	case vs.runGC <- struct{}{}:
+		log.Printf("value store running gc head: %#v ratio: %f", head, ratio)
+
+		start := time.Now()
+		lfs, err := vs.pickLogFiles(head, ratio)
+		if err != nil {
+			return errors.Wrapf(err, "Unable to pick gc log files in %#v", head)
+		}
+		for i := range lfs {
+			lf := lfs[i]
+			log.Printf("value store gc file log %q", lf.path)
+			err := vs.runGCLogFile(lf, ratio)
+			if err != nil {
+				return errors.Wrapf(err, "Unable to gc log file %q", lf.path)
+			}
+			vs.filesToBeDeleted = append(vs.filesToBeDeleted, lf.fid)
+		}
+		log.Printf("value store gc done. time used: %s files: %#v", time.Now().Sub(start), vs.filesToBeDeleted)
+
+	default:
+		log.Printf("value store already one gc running")
+		return ErrGCRunning
+	}
+	return nil
+}
+
 type logFile struct {
 	path string
 
@@ -437,7 +578,6 @@ var (
 
 func (f *logFile) read(vp valuePointer, s *Slice) (buf []byte, err error) {
 	//log.Printf("log file read. fid: %d len: %d offset: %d fmap: %d", vp.Fid, vp.Len, vp.Offset, len(f.fmap))
-
 	var nbr int64
 	offset := vp.Offset
 
@@ -458,7 +598,6 @@ func (f *logFile) read(vp valuePointer, s *Slice) (buf []byte, err error) {
 		}
 	}
 	_ = nbr
-	//log.Printf("read count: %d", nbr)
 	return buf, err
 }
 
@@ -507,6 +646,8 @@ func (f *logFile) doneWriting() error {
 	if err := f.fd.Sync(); err != nil {
 		return errors.Wrapf(err, "Unable to sync log file: %q", f.path)
 	}
+	// FIXME: maybe it's no necessary to reopen the file readonly, just
+	// keep it read-write.
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	if err := f.munmap(); err != nil {

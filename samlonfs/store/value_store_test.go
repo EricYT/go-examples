@@ -72,7 +72,7 @@ func TestValueStoreWrite(t *testing.T) {
 	err := os.MkdirAll(tmpdir, 0755)
 	assert.Nil(t, err)
 	defer os.RemoveAll(tmpdir)
-	vs := NewValueStore(tmpdir, opts)
+	vs := NewValueStore(tmpdir, opts, nil)
 	err = vs.Load()
 	assert.Nil(t, err)
 
@@ -100,7 +100,7 @@ func TestValueStoreRead(t *testing.T) {
 	err := os.MkdirAll(tmpdir, 0755)
 	assert.Nil(t, err)
 	defer os.RemoveAll(tmpdir)
-	vs := NewValueStore(tmpdir, opts)
+	vs := NewValueStore(tmpdir, opts, nil)
 	err = vs.Load()
 	assert.Nil(t, err)
 
@@ -131,7 +131,7 @@ func TestValueStoreLoad(t *testing.T) {
 	err := os.MkdirAll(tmpdir, 0755)
 	assert.Nil(t, err)
 	defer os.RemoveAll(tmpdir)
-	vs := NewValueStore(tmpdir, opts)
+	vs := NewValueStore(tmpdir, opts, nil)
 	err = vs.Load()
 	assert.Nil(t, err)
 
@@ -158,7 +158,7 @@ func TestValueStoreLoad(t *testing.T) {
 	}
 
 	// reopen
-	vs = NewValueStore(tmpdir, opts)
+	vs = NewValueStore(tmpdir, opts, nil)
 	err = vs.Load()
 	if !assert.Nil(t, err) {
 		return
@@ -190,7 +190,8 @@ func TestValueStoreIterate(t *testing.T) {
 	err := os.MkdirAll(tmpdir, 0755)
 	assert.Nil(t, err)
 	defer os.RemoveAll(tmpdir)
-	vs := NewValueStore(tmpdir, opts)
+
+	vs := NewValueStore(tmpdir, opts, nil)
 	err = vs.Load()
 	if !assert.Nil(t, err) {
 		return
@@ -233,14 +234,75 @@ func TestValueStoreIterate(t *testing.T) {
 	sortedFilesId := vs.sortedFilesId()
 	for _, fid := range sortedFilesId {
 		lf := vs.filesMap[fid]
-		eof, err := vs.iterate(lf, 0, displayEntry)
+		var eof uint32
+		eof, err = vs.iterate(lf, 0, displayEntry)
 		if !assert.Nil(t, err) {
+			t.Logf("iterate log file %q current offset: %d. %v", lf.path, eof, err)
 			return
 		}
-		t.Logf("the file %s eof: %d", lf.path, eof)
+		//t.Logf("the file %s eof: %d", lf.path, eof)
 		stat, _ := lf.fd.Stat()
 		if eof > uint32(stat.Size()) {
 			assert.Failf(t, "iterate eof mismatch", "iterate returns eof offset %d bigger than file size %d", eof, stat.Size())
+		}
+	}
+}
+
+var (
+	stubIndexEngineGet = func(_ uint64) (vp valuePointer, err error) { return }
+)
+
+type fakeIndexEngine struct{}
+
+func (f fakeIndexEngine) Get(bid uint64) (valuePointer, error) {
+	return stubIndexEngineGet(bid)
+}
+
+func TestValueStorePickLogs(t *testing.T) {
+	tmpdir := path.Join(os.TempDir(), "value_store")
+	err := os.MkdirAll(tmpdir, 0755)
+	assert.Nil(t, err)
+	defer os.RemoveAll(tmpdir)
+
+	opts := Opts{
+		LoadingMode:         MemoryMap,
+		FileBlockMaxSize:    50,
+		FileBlockMaxEntries: 20,
+		SyncedFileIO:        true,
+	}
+	engine := &fakeIndexEngine{}
+	vs := NewValueStore(tmpdir, opts, engine)
+	err = vs.Load()
+	assert.Nil(t, err)
+
+	ents := prepareEntries(103, func(i int) []byte {
+		return []byte(strconv.Itoa(i))
+	})
+	reqs := prepareRequests(8, ents)
+
+	vps := make([]valuePointer, 0, len(ents))
+	for i := range reqs {
+		err := vs.Write(reqs[i])
+		if !assert.Nil(t, err) {
+			return
+		}
+		vps = append(vps, reqs[i].Ptrs...)
+	}
+
+	origStubIndexEngineGet := stubIndexEngineGet
+	stubIndexEngineGet = func(bid uint64) (valuePointer, error) {
+		if bid < 50 {
+			return valuePointer{}, ErrValuePointerNotFound
+		}
+		return vps[bid], nil
+	}
+	defer func() { stubIndexEngineGet = origStubIndexEngineGet }()
+
+	head := vps[len(ents)-1]
+	lfs, err := vs.pickLogFiles(head, 1)
+	if assert.Nil(t, err) {
+		for i := range lfs {
+			t.Logf("Got log files: %q fid: %d", lfs[i].path, lfs[i].fid)
 		}
 	}
 }

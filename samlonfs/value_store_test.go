@@ -1,7 +1,8 @@
-package store
+package samlonfs
 
 import (
 	"crypto/md5"
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"os"
@@ -20,7 +21,9 @@ func init() {
 func prepareEntries(num int, dataFunc func(i int) []byte) []*Entry {
 	ents := make([]*Entry, 0, num)
 	for i := 0; i < num; i++ {
-		e := &Entry{BId: uint64(i), Data: dataFunc(i)}
+		k := make([]byte, 4)
+		binary.BigEndian.PutUint32(k, uint32(i))
+		e := &Entry{Key: k, Value: dataFunc(i)}
 		ents = append(ents, e)
 	}
 	return ents
@@ -52,7 +55,9 @@ func validateEntries(t *testing.T, vs *ValueStore, reqs []*request) {
 			s := &Slice{}
 			buf, unlock, err := vs.Read(vp, s)
 			if assert.Nil(t, err) {
-				assert.Equal(t, ent.Data, buf)
+				if !assert.Equal(t, ent.Value, buf) {
+					return
+				}
 				if unlock != nil {
 					unlock()
 				}
@@ -217,16 +222,17 @@ func TestValueStoreIterate(t *testing.T) {
 	}
 
 	displayEntry := func(e *Entry, vp valuePointer) error {
-		remd5 := md5.Sum(ents[int(e.BId)].Data)
-		emd5 := md5.Sum(e.Data)
+		index := binary.BigEndian.Uint32(e.Key[:4])
+		remd5 := md5.Sum(ents[int(index)].Value)
+		emd5 := md5.Sum(e.Value)
 		if !assert.Equal(t, remd5, emd5) {
-			return fmt.Errorf("Got missmatch entry (%d).", e.BId)
+			return fmt.Errorf("Got missmatch entry (%q).", string(e.Key))
 		}
 
-		rvp := vps[int(e.BId)]
+		rvp := vps[int(index)]
 		if !assert.Equal(t, rvp, vp) {
-			return fmt.Errorf("Got missmatch value point (%d). Original (%#v) Current (%#v)",
-				e.BId, rvp, vp)
+			return fmt.Errorf("Got missmatch value point (%q). Original (%#v) Current (%#v)",
+				string(e.Key), rvp, vp)
 		}
 		return nil
 	}
@@ -249,17 +255,18 @@ func TestValueStoreIterate(t *testing.T) {
 }
 
 var (
-	stubIndexEngineGet = func(_ uint64) (vp valuePointer, err error) { return }
+	stubIndexEngineGet = func(_ []byte) (vp valuePointer, err error) { return }
 )
 
 type fakeIndexEngine struct{}
 
-func (f fakeIndexEngine) Get(bid uint64) (valuePointer, error) {
-	return stubIndexEngineGet(bid)
+func (f fakeIndexEngine) Get(key []byte) (valuePointer, error) {
+	return stubIndexEngineGet(key)
 }
 
 func TestValueStorePickLogs(t *testing.T) {
 	tmpdir := path.Join(os.TempDir(), "value_store")
+	t.Logf("tmpdir: %q", tmpdir)
 	err := os.MkdirAll(tmpdir, 0755)
 	assert.Nil(t, err)
 	defer os.RemoveAll(tmpdir)
@@ -290,11 +297,12 @@ func TestValueStorePickLogs(t *testing.T) {
 	}
 
 	origStubIndexEngineGet := stubIndexEngineGet
-	stubIndexEngineGet = func(bid uint64) (valuePointer, error) {
-		if bid < 50 {
+	stubIndexEngineGet = func(key []byte) (valuePointer, error) {
+		index := int(binary.BigEndian.Uint32(key[:4]))
+		if index < 50 {
 			return valuePointer{}, ErrValuePointerNotFound
 		}
-		return vps[bid], nil
+		return vps[index], nil
 	}
 	defer func() { stubIndexEngineGet = origStubIndexEngineGet }()
 
@@ -305,4 +313,74 @@ func TestValueStorePickLogs(t *testing.T) {
 			t.Logf("Got log files: %q fid: %d", lfs[i].path, lfs[i].fid)
 		}
 	}
+}
+
+func TestValueStoreGC(t *testing.T) {
+	tmpdir := path.Join(os.TempDir(), "value_store")
+	t.Logf("tmpdir: %q", tmpdir)
+	err := os.MkdirAll(tmpdir, 0755)
+	assert.Nil(t, err)
+	defer os.RemoveAll(tmpdir)
+
+	opts := Opts{
+		LoadingMode:         MemoryMap,
+		FileBlockMaxSize:    50,
+		FileBlockMaxEntries: 20,
+		SyncedFileIO:        true,
+	}
+	engine := &fakeIndexEngine{}
+	vs := NewValueStore(tmpdir, opts, engine)
+	err = vs.Load()
+	assert.Nil(t, err)
+
+	ents := prepareEntries(103, func(i int) []byte {
+		return []byte(strconv.Itoa(i))
+	})
+	reqs := prepareRequests(8, ents)
+
+	vps := make(map[uint32]valuePointer)
+	for i := range reqs {
+		err := vs.Write(reqs[i])
+		if !assert.Nil(t, err) {
+			return
+		}
+		for ii := range reqs[i].Ptrs {
+			e := reqs[i].Ents[ii]
+			vp := reqs[i].Ptrs[ii]
+			key := binary.BigEndian.Uint32(e.Key[:4])
+			vps[key] = vp
+		}
+	}
+
+	// rewrite the first request data
+	reqs[0].Ptrs = nil
+	err = vs.Write(reqs[0])
+	if !assert.Nil(t, err) {
+		return
+	}
+	for i := range reqs[0].Ptrs {
+		e := reqs[0].Ents[i]
+		vp := reqs[0].Ptrs[i]
+		key := binary.BigEndian.Uint32(e.Key[:4])
+		vps[key] = vp
+	}
+
+	anchor := binary.BigEndian.Uint32(reqs[1].Ents[0].Key[:4])
+
+	origStubIndexEngineGet := stubIndexEngineGet
+	stubIndexEngineGet = func(key []byte) (valuePointer, error) {
+		k := binary.BigEndian.Uint32(key[:4])
+		if k >= anchor {
+			if k%2 == 0 {
+				return valuePointer{}, ErrValuePointerNotFound
+			}
+		}
+		return vps[k], nil
+	}
+	defer func() { stubIndexEngineGet = origStubIndexEngineGet }()
+
+	headEntry := ents[len(ents)-3]
+	head := vps[binary.BigEndian.Uint32(headEntry.Key[:4])]
+	err = vs.RunGC(head, 0.5)
+	assert.Nil(t, err)
 }

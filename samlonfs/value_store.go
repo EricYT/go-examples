@@ -1,4 +1,4 @@
-package store
+package samlonfs
 
 import (
 	"bufio"
@@ -21,8 +21,8 @@ import (
 )
 
 var (
-	ErrLogFileNotFound error = errors.New("log file not found")
-	ErrCrcInvalid      error = errors.New("crc invalid")
+	ErrRetry      error = errors.New("log file retry") // log file maybe has garbage collection
+	ErrCrcInvalid error = errors.New("crc invalid")
 )
 
 var (
@@ -30,7 +30,7 @@ var (
 )
 
 type IndexEngine interface {
-	Get(bid uint64) (valuePointer, error)
+	Get(key []byte) (valuePointer, error)
 }
 
 type ValueStore struct {
@@ -180,29 +180,6 @@ func (vs *ValueStore) populateFilesMap() error {
 	return nil
 }
 
-var requestPool sync.Pool = sync.Pool{
-	New: func() interface{} {
-		return new(request)
-	},
-}
-
-type request struct {
-	// Input
-	Ents []*Entry
-	// Output
-	Ptrs []valuePointer
-	Wg   sync.WaitGroup
-	Err  error
-}
-
-func (req *request) Wait() error {
-	req.Wg.Wait()
-	req.Ents = nil
-	err := req.Err
-	requestPool.Put(req)
-	return err
-}
-
 func (vs *ValueStore) woffset() uint32 {
 	return atomic.LoadUint32(&vs.writableBlockOffset)
 }
@@ -285,7 +262,7 @@ func (vs *ValueStore) Write(req *request) (err error) {
 		vp.Offset = vs.woffset() + uint32(buf.Len())
 		vp.Len, err = encodeEntry(e, &buf)
 		if err != nil {
-			return errors.Wrapf(err, "Unable to encode entry %d", e.BId)
+			return errors.Wrapf(err, "Unable to encode entry %q", string(e.Key))
 		}
 		vs.numEntriesWritten += 1
 		req.Ptrs = append(req.Ptrs, vp)
@@ -317,7 +294,7 @@ func (vs *ValueStore) Read(vp valuePointer, s *Slice) ([]byte, func(), error) {
 	}
 	var head header
 	head.Decode(buf)
-	return buf[headerSize : uint32(headerSize)+head.dlen], unlock, nil
+	return buf[uint32(headerSize)+head.klen : uint32(headerSize)+head.klen+head.vlen], unlock, nil
 }
 
 func (vs *ValueStore) getValueBytes(vp valuePointer, s *Slice) ([]byte, func(), error) {
@@ -342,7 +319,7 @@ func (vs *ValueStore) getFileRLocked(fid uint32) (*logFile, error) {
 	lf, ok := vs.filesMap[fid]
 	vs.filesLock.RUnlock()
 	if !ok {
-		return nil, ErrLogFileNotFound
+		return nil, ErrRetry
 	}
 	lf.lock.RLock()
 	return lf, nil
@@ -355,8 +332,8 @@ var (
 type valueEntry func(e *Entry, vp valuePointer) error
 
 type safeRead struct {
-	bid uint64
-	v   []byte
+	k []byte
+	v []byte
 
 	recordOffset uint32
 }
@@ -371,15 +348,21 @@ func (r *safeRead) Entry(reader *bufio.Reader) (*Entry, error) {
 	}
 	var head header
 	head.Decode(hbuf[:])
-	if cap(r.v) < int(head.dlen) {
-		r.v = make([]byte, int(2*head.dlen))
+	if cap(r.k) < int(head.klen) {
+		r.k = make([]byte, int(2*head.klen))
+	}
+	if cap(r.v) < int(head.vlen) {
+		r.v = make([]byte, int(2*head.vlen))
 	}
 
 	e := &Entry{}
-	e.BId = head.bid
-	e.Data = r.v[:head.dlen]
+	e.Key = r.k[:head.klen]
+	e.Value = r.v[:head.vlen]
 
-	if _, err := io.ReadFull(tee, e.Data); err != nil {
+	if _, err := io.ReadFull(tee, e.Key); err != nil {
+		return nil, err
+	}
+	if _, err := io.ReadFull(tee, e.Value); err != nil {
 		return nil, err
 	}
 
@@ -416,7 +399,7 @@ func (vs *ValueStore) iterate(lf *logFile, offset uint32, fn valueEntry) (eof ui
 	for {
 		var entry *Entry
 		entry, err = read.Entry(reader)
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
+		if err == io.EOF || err == io.ErrUnexpectedEOF { // io.ReadFull
 			break
 		}
 		if err != nil {
@@ -426,7 +409,7 @@ func (vs *ValueStore) iterate(lf *logFile, offset uint32, fn valueEntry) (eof ui
 		var vp valuePointer
 		vp.Fid = lf.fid
 		vp.Offset = read.recordOffset
-		vp.Len = uint32(headerSize + len(entry.Data) + crc32.Size)
+		vp.Len = uint32(headerSize + len(entry.Key) + len(entry.Value) + crc32.Size)
 
 		if err = fn(entry, vp); err != nil {
 			if err == ErrStop {
@@ -475,14 +458,14 @@ func (vs *ValueStore) pickLogFiles(head valuePointer, ratio float64) (lfs []*log
 				return ErrStop
 			}
 
-			bid := entry.BId
-			currvp, err := vs.indexEngine.Get(bid)
+			key := entry.Key
+			currvp, err := vs.indexEngine.Get(key)
 			if err != nil {
 				if ErrValuePointerNotFound == err {
 					discard += vp.Len
 					return nil
 				}
-				return errors.Wrapf(err, "Unable to get %d value pointer from index", bid)
+				return errors.Wrapf(err, "Unable to get %q value pointer from index", key)
 			}
 
 			if currvp.Fid > vp.Fid {
@@ -521,7 +504,40 @@ func (vs *ValueStore) pickLogFiles(head valuePointer, ratio float64) (lfs []*log
 
 func (vs *ValueStore) runGCLogFile(lf *logFile, ratio float64) error {
 	log.Printf("value store ready to gc log file %q", lf.path)
-	// FIXME: not implement
+
+	_, err := vs.iterate(lf, 0, func(e *Entry, vp valuePointer) error {
+
+		key := e.Key
+		currvp, err := vs.indexEngine.Get(key)
+		if err != nil {
+			if err == ErrValuePointerNotFound {
+				// discard the entry
+				log.Printf("discard entry key: %v", key)
+				return nil
+			}
+			return errors.Wrapf(err, "Unable to index %v from index engine", key)
+		}
+
+		if currvp.Fid > vp.Fid {
+			// there is a new value after this one, discard it.
+			return nil
+		} else if currvp.Fid == vp.Fid {
+			if currvp.Offset > vp.Offset {
+				// discard it
+				return nil
+			}
+			// FIXME: rewrite this one.
+			log.Printf("rewrite entry key: %v", key)
+		}
+		// FIXME: currence writing ?
+		// discard it
+		return nil
+	})
+	if err != nil {
+		log.Printf("value store run gc in log file %q fail. %v", lf.path, err)
+		return errors.Wrapf(err, "Unable to gc file %q", lf.path)
+	}
+
 	return nil
 }
 
@@ -537,6 +553,12 @@ func (vs *ValueStore) RunGC(head valuePointer, ratio float64) error {
 		log.Printf("value store running gc head: %#v ratio: %f", head, ratio)
 
 		start := time.Now()
+		defer func() {
+			log.Printf("value store gc done. time used: %s files: %#v", time.Now().Sub(start), vs.filesToBeDeleted)
+			// release the access
+			<-vs.runGC
+		}()
+
 		lfs, err := vs.pickLogFiles(head, ratio)
 		if err != nil {
 			return errors.Wrapf(err, "Unable to pick gc log files in %#v", head)
@@ -550,7 +572,6 @@ func (vs *ValueStore) RunGC(head valuePointer, ratio float64) error {
 			}
 			vs.filesToBeDeleted = append(vs.filesToBeDeleted, lf.fid)
 		}
-		log.Printf("value store gc done. time used: %s files: %#v", time.Now().Sub(start), vs.filesToBeDeleted)
 
 	default:
 		log.Printf("value store already one gc running")

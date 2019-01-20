@@ -1,4 +1,4 @@
-package store
+package samlonfs
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 var CastagnoliTable = crc32.MakeTable(crc32.Castagnoli)
 
 const (
-	headerSize int = 12
+	headerSize int = 8
 )
 
 type valuePointer struct {
@@ -23,30 +23,31 @@ func (vp valuePointer) String() string {
 	return fmt.Sprintf("value pointer fid: %d len: %d offset: %d", vp.Fid, vp.Len, vp.Offset)
 }
 
+// FIXME: right now, expired or some other meta not supported
 type header struct {
-	bid  uint64
-	dlen uint32
+	klen uint32
+	vlen uint32
 }
 
 func (h *header) Encode(out []byte) {
-	binary.BigEndian.PutUint64(out[:8], h.bid)
-	binary.BigEndian.PutUint32(out[8:12], h.dlen)
+	binary.BigEndian.PutUint32(out[:4], h.klen)
+	binary.BigEndian.PutUint32(out[4:8], h.vlen)
 }
 
 func (h *header) Decode(in []byte) {
-	h.bid = binary.BigEndian.Uint64(in[:8])
-	h.dlen = binary.BigEndian.Uint32(in[8:12])
+	h.klen = binary.BigEndian.Uint32(in[:4])
+	h.vlen = binary.BigEndian.Uint32(in[4:8])
 }
 
 type Entry struct {
-	BId  uint64
-	Data []byte
+	Key   []byte
+	Value []byte
 }
 
 func encodeEntry(e *Entry, buf *bytes.Buffer) (n uint32, err error) {
 	h := header{
-		bid:  e.BId,
-		dlen: uint32(len(e.Data)),
+		klen: uint32(len(e.Key)),
+		vlen: uint32(len(e.Value)),
 	}
 
 	hash := crc32.New(CastagnoliTable)
@@ -56,13 +57,15 @@ func encodeEntry(e *Entry, buf *bytes.Buffer) (n uint32, err error) {
 	buf.Write(head[:])
 	hash.Write(head[:])
 
-	buf.Write(e.Data)
-	hash.Write(e.Data)
+	buf.Write(e.Key)
+	hash.Write(e.Key)
+	buf.Write(e.Value)
+	hash.Write(e.Value)
 
 	// crc32
 	var crc [crc32.Size]byte
 	binary.BigEndian.PutUint32(crc[:], hash.Sum32())
 	buf.Write(crc[:])
 
-	return uint32(len(head) + len(e.Data) + len(crc)), nil
+	return uint32(len(head) + len(e.Key) + len(e.Value) + len(crc)), nil
 }

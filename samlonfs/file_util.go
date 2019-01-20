@@ -1,4 +1,4 @@
-package store
+package samlonfs
 
 import "os"
 

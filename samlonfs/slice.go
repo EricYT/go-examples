@@ -1,4 +1,4 @@
-package store
+package samlonfs
 
 type Slice struct {
 	buf []byte

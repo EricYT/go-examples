@@ -142,11 +142,7 @@ func (fdc *FDCache) ensureFile(path string) (filer, error) {
 }
 
 func (fdc *FDCache) touchFile(f filer) {
-	fdc.lru.Remove(f.getEle())
-	delete(fdc.fileIndex, f.getEle())
-	ele := fdc.lru.PushFront(f)
-	f.setEle(ele)
-	fdc.fileIndex[ele] = f.path()
+	fdc.lru.MoveToFront(f.getEle())
 }
 
 func (fdc *FDCache) insertFile(f filer) {

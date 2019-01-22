@@ -89,7 +89,6 @@ func TestFDCacheClose(t *testing.T) {
 	fdc.Close("test")
 
 	assert.Equal(t, 0, len(fdc.fds))
-	assert.Equal(t, 0, len(fdc.fileIndex))
 	assert.Equal(t, 1, len(fdc.ghost))
 
 	waitc := fdc.ghost["test"]
@@ -119,7 +118,7 @@ func TestFDCacheTouch(t *testing.T) {
 	assert.Equal(t, len(val), n)
 
 	f1 := fdc.lru.Front()
-	assert.Equal(t, name1, fdc.fileIndex[f1])
+	assert.Equal(t, name1, f1.Value.(filer).path())
 
 	tmpfile2, err := ioutil.TempFile(os.TempDir(), "")
 	assert.Nil(t, err)
@@ -131,7 +130,7 @@ func TestFDCacheTouch(t *testing.T) {
 	assert.Equal(t, len(val), n)
 
 	f2 := fdc.lru.Front()
-	assert.Equal(t, name2, fdc.fileIndex[f2])
+	assert.Equal(t, name2, f2.Value.(filer).path())
 
 	buf := make([]byte, len(val))
 	n1, err := fdc.ReadAt(context.TODO(), name1, buf, 0)
@@ -140,7 +139,7 @@ func TestFDCacheTouch(t *testing.T) {
 	assert.Equal(t, val, buf)
 
 	f3 := fdc.lru.Front()
-	assert.Equal(t, name1, fdc.fileIndex[f3])
+	assert.Equal(t, name1, f3.Value.(filer).path())
 }
 
 func TestFDCacheGhostFile(t *testing.T) {
@@ -193,15 +192,15 @@ func TestFDCacheGhostFile(t *testing.T) {
 }
 
 func TestFDCacheEject(t *testing.T) {
+	fdc := NewFDCache(2)
+	defer fdc.Reset()
+	val := []byte("hello,world")
+
 	tmpfile, err := ioutil.TempFile(os.TempDir(), "")
 	assert.Nil(t, err)
 	name1 := tmpfile.Name()
 	defer os.Remove(name1)
 
-	fdc := NewFDCache(2)
-	defer fdc.Reset()
-
-	val := []byte("hello,world")
 	n, err := fdc.WriteAt(context.TODO(), name1, val, 0)
 	assert.Nil(t, err)
 	assert.Equal(t, len(val), n)
@@ -227,9 +226,9 @@ func TestFDCacheEject(t *testing.T) {
 	assert.Equal(t, 2, len(fdc.fds))
 
 	f1 := fdc.lru.Front()
-	assert.Equal(t, name3, fdc.fileIndex[f1])
+	assert.Equal(t, name3, f1.Value.(filer).path())
 	f2 := fdc.lru.Back()
-	assert.Equal(t, name2, fdc.fileIndex[f2])
+	assert.Equal(t, name2, f2.Value.(filer).path())
 }
 
 // fake File for test

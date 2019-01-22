@@ -32,19 +32,17 @@ type FDCache struct {
 
 	capacity int
 
-	fds       map[string]filer
-	fileIndex map[*list.Element]string
-	lru       *list.List
+	fds map[string]filer
+	lru *list.List
 
 	ghost map[string]chan struct{} // The files are ejected but not sync or close completely.
 }
 
 func NewFDCache(c int) *FDCache {
 	return &FDCache{
-		capacity:  c,
-		fds:       make(map[string]filer),
-		fileIndex: make(map[*list.Element]string),
-		lru:       list.New(),
+		capacity: c,
+		fds:      make(map[string]filer),
+		lru:      list.New(),
 
 		ghost: make(map[string]chan struct{}),
 	}
@@ -117,7 +115,6 @@ func (fdc *FDCache) Reset() {
 		close(waitc)
 	}
 	fdc.fds = make(map[string]filer)
-	fdc.fileIndex = make(map[*list.Element]string)
 	fdc.lru = list.New()
 	fdc.ghost = make(map[string]chan struct{})
 }
@@ -149,13 +146,11 @@ func (fdc *FDCache) insertFile(f filer) {
 	ele := fdc.lru.PushFront(f)
 	f.setEle(ele)
 	fdc.fds[f.path()] = f
-	fdc.fileIndex[ele] = f.path()
 }
 
 func (fdc *FDCache) removeFile(f filer) {
 	fdc.lru.Remove(f.getEle())
 	delete(fdc.fds, f.path())
-	delete(fdc.fileIndex, f.getEle())
 
 	waitc := make(chan struct{})
 	fdc.ghost[f.path()] = waitc
@@ -164,9 +159,11 @@ func (fdc *FDCache) removeFile(f filer) {
 
 func (fdc *FDCache) ejectOneFile() {
 	eject := fdc.lru.Back()
-	path := fdc.fileIndex[eject]
-	f := fdc.fds[path]
-	fdc.removeFile(f)
+	if eject != nil {
+		path := eject.Value.(filer).path()
+		f := fdc.fds[path]
+		fdc.removeFile(f)
+	}
 }
 
 func (fdc *FDCache) removeGhostFile(path string) {

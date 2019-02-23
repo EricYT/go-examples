@@ -100,3 +100,15 @@ func BenchmarkEntryEncode(b *testing.B) {
 		pbuf.Reset()
 	}
 }
+
+func TestEncodeValuePointer(t *testing.T) {
+	vp := valuePointer{Fid: 123, Len: 234, Offset: 7890}
+
+	var vpbuf [valuePointerSize]byte
+	vp.Encode(vpbuf[:])
+
+	var vp1 valuePointer
+	vp1.Decode(vpbuf[:])
+
+	assert.Equal(t, vp, vp1)
+}

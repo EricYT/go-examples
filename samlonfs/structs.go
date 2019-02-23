@@ -10,7 +10,8 @@ import (
 var CastagnoliTable = crc32.MakeTable(crc32.Castagnoli)
 
 const (
-	headerSize int = 8
+	headerSize       int = 8
+	valuePointerSize int = 12
 )
 
 type valuePointer struct {
@@ -21,6 +22,18 @@ type valuePointer struct {
 
 func (vp valuePointer) String() string {
 	return fmt.Sprintf("value pointer fid: %d len: %d offset: %d", vp.Fid, vp.Len, vp.Offset)
+}
+
+func (vp valuePointer) Encode(out []byte) {
+	binary.BigEndian.PutUint32(out[0:4], vp.Fid)
+	binary.BigEndian.PutUint32(out[4:8], vp.Len)
+	binary.BigEndian.PutUint32(out[8:12], vp.Offset)
+}
+
+func (vp *valuePointer) Decode(in []byte) {
+	vp.Fid = binary.BigEndian.Uint32(in[0:4])
+	vp.Len = binary.BigEndian.Uint32(in[4:8])
+	vp.Offset = binary.BigEndian.Uint32(in[8:12])
 }
 
 // FIXME: right now, expired or some other meta not supported

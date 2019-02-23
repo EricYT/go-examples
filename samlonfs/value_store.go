@@ -68,7 +68,6 @@ func (vs *ValueStore) Load() error {
 	if err := vs.populateFilesMap(); err != nil {
 		return errors.Wrap(err, "Unable to populate files map")
 	}
-	// zero files exist
 	if len(vs.filesMap) == 0 {
 		_, err := vs.createLogFile(0)
 		if err != nil {

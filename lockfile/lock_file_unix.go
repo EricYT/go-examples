@@ -4,18 +4,18 @@ package lockfile
 
 import "syscall"
 
-func lockFile(fd uintptr) (err error) {
+func tryLockFile(fd uintptr) (err error) {
 	err = syscall.Flock(int(fd), syscall.LOCK_EX|syscall.LOCK_NB)
 	if err == syscall.EWOULDBLOCK {
-		err = ErrWouldBlock
+		err = ErrLocked
 	}
 	return err
 }
 
-func unlockFile(fd uintptr) (err error) {
-	err = syscall.Flock(int(fd), syscall.LOCK_UN)
+func lockFile(fd uintptr) (err error) {
+	err = syscall.Flock(int(fd), syscall.LOCK_EX)
 	if err == syscall.EWOULDBLOCK {
-		err = ErrWouldBlock
+		err = ErrLocked
 	}
 	return err
 }

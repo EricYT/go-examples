@@ -1,7 +1,6 @@
 package samlonfs
 
 import (
-	"path"
 	"sync"
 
 	"go.uber.org/zap"
@@ -31,9 +30,7 @@ func NewSamlon(lg *zap.Logger, opts Opts, rootdir string) *Samlon {
 		writeCh: make(chan *request),
 	}
 
-	valueStoreDir := path.Join(s.rootDir, valueStoreDir)
-	if EnsureDirectory(valueStoreDir) {
-	}
+	// FIXME: value store and meta store
 
 	return s
 }
@@ -71,8 +68,4 @@ func (s *Samlon) Put(key, value []byte) (err error) {
 
 func (s *Samlon) Get(key []byte) (value []byte, err error) {
 	return
-}
-
-func EnsureDirectory(dir string) bool {
-	return false
 }

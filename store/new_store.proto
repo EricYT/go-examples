@@ -1,0 +1,34 @@
+syntax = "proto3";
+option objc_class_prefix = "JDCLOUD";
+
+package dsproto;
+
+import "datanode.proto";
+
+// message used by raft instance to replicate
+message ReplicaMessage {
+   Type  type = 1;
+   oneof Msg {
+     PutBlob    put = 2;
+     DeleteBlob del = 3;
+   }
+   enum Type {
+     UNKNOW = 0;
+     PUT    = 1;
+     DELETE = 2;
+   }
+}
+
+message PutBlob {
+  int64        reqId  = 1;
+  int64        blobId = 2;
+  bytes        blob   = 3;
+  bytes        meta   = 4;
+  bytes        crc    = 5;
+  BlobPointer  ptr    = 6;
+}
+
+message DeleteBlob {
+  int64 reqId  = 1;
+  int64 blobId = 2;
+}

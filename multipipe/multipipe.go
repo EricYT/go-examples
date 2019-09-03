@@ -93,7 +93,7 @@ func (p *MultiPipe) NewReader() (io.Reader, error) {
 	r := &reader{
 		p:        p,
 		closedCh: make(chan struct{}),
-		signalCh: make(chan struct{}),
+		signalCh: make(chan struct{}, 1),
 	}
 	p.rs = append(p.rs, r)
 	return r, nil
@@ -128,7 +128,6 @@ func (r *reader) Read(buf []byte) (n int, err error) {
 	defer r.mu.Unlock()
 
 	for {
-		// FIXME: bytes copy wasted if data is not enough
 		n, err = r.p.readAt(r.off, buf)
 		if err != nil {
 			if err != io.EOF {
@@ -136,7 +135,7 @@ func (r *reader) Read(buf []byte) (n int, err error) {
 			}
 			break
 		}
-		if n == len(buf) {
+		if n > 0 {
 			break
 		}
 		select {

@@ -183,6 +183,70 @@ func TestReadBlock(t *testing.T) {
 	wg.Wait()
 }
 
+func TestReadBlockPart(t *testing.T) {
+	defer func(old func(int, []byte) (int, error)) { stubReadAt = old }(stubReadAt)
+
+	stubReadAt = func(off int, buf []byte) (n int, err error) {
+		return 0, nil
+	}
+	r := &reader{p: &fakePipe{}, signalCh: make(chan struct{}, 1), closedCh: make(chan struct{})}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	data1 := make([]byte, 5)
+	rand.Read(data1)
+	data2 := make([]byte, 10)
+	rand.Read(data2)
+
+	next := make(chan struct{})
+
+	go func() {
+		defer wg.Done()
+
+		cases := []struct {
+			n    int
+			data []byte
+			err  error
+		}{
+			{n: 5, data: data1},
+			{n: 10, data: data2},
+			{data: []byte{}, err: io.EOF},
+		}
+
+		buf := make([]byte, 10)
+		for _, c := range cases {
+			n, err := r.Read(buf)
+			if !assert.Equal(t, c.n, n) ||
+				!assert.Equal(t, c.data, buf[:n]) ||
+				!assert.Equal(t, c.err, err) {
+				return
+			}
+			next <- struct{}{}
+		}
+	}()
+	time.Sleep(time.Millisecond * 1)
+
+	stubReadAt = func(off int, buf []byte) (n int, err error) {
+		if off == 0 {
+			n = copy(buf, data1)
+		} else if off == 5 {
+			n = copy(buf, data2)
+		} else {
+			return 0, io.EOF
+		}
+		return n, nil
+	}
+	r.wakeup()
+	<-next
+	r.wakeup()
+	<-next
+	r.wakeup()
+	<-next
+
+	wg.Wait()
+}
+
 func TestMultiPipeSingle(t *testing.T) {
 	p := NewMultiPipe()
 

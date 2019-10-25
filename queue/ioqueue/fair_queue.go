@@ -67,7 +67,7 @@ func (fq *FairQueue) Close() {
 	for _, pc := range fq.allClasses {
 		for !pc.Empty() {
 			req := pc.Dequeue()
-			req.desc.ErrorC <- ErrFairQueueClosed
+			req.desc.Done(ErrFairQueueClosed)
 		}
 	}
 	fq.allClasses = nil
@@ -98,24 +98,30 @@ func (fq *FairQueue) UnregisterPriorityClass(name string) {
 func (fq *FairQueue) Size() int {
 	fq.mu.Lock()
 	defer fq.mu.Unlock()
+	return fq.size()
+}
+
+func (fq *FairQueue) size() int {
 	var total int
 	for _, pc := range fq.allClasses {
-		total += pc.Size()
+		if pc.Queued() {
+			total += pc.Size()
+		}
 	}
 	return total
 }
 
-func (fq *FairQueue) Enqueue(name string, desc *FairQueueRequestDescriptor) error {
+func (fq *FairQueue) Enqueue(name string, desc *FairQueueRequestDescriptor) (int, error) {
 	fq.mu.Lock()
 	defer fq.mu.Unlock()
 
 	pc, ok := fq.allClasses[name]
 	if !ok {
-		return ErrFairQueuePriorityClassNotFound
+		return -1, ErrFairQueuePriorityClassNotFound
 	}
 	pc.Enqueue(&request{desc: desc})
 	fq.pushPriorityClass(pc)
-	return nil
+	return fq.size(), nil
 }
 
 func (fq *FairQueue) Dequeue() (*FairQueueRequestDescriptor, bool) {
@@ -135,18 +141,20 @@ func (fq *FairQueue) Dequeue() (*FairQueueRequestDescriptor, bool) {
 		fq.pushPriorityClass(pc)
 	}
 
-	return req.desc, fq.handles.Len() == 0
+	return req.desc, fq.handles.Len() == 0 // no pc in priority queue
 }
 
+var _nowFn = time.Now
+
 func (fq *FairQueue) nextAccumulated(pc *PriorityClass, req *request) float64 {
-	delta := time.Now().Sub(fq.base).Microseconds()
+	delta := _nowFn().Sub(fq.base).Milliseconds()
 	reqCost := (float64(req.desc.Weight)/float64(fq.config.maxReqCount) + float64(req.desc.Size)/float64(fq.config.maxBytesCount)) / float64(pc.Shares())
 	cost := math.Exp(float64(1)/float64(fq.config.tau)*float64(delta)) * reqCost
 	nextAccumulated := pc.Accumulated() + cost
 	for math.IsInf(nextAccumulated, 0) {
 		fq.normalizeStats()
 		// If we have renormalized, our time base will have changed. This should happen very infrequently
-		delta = time.Now().Sub(fq.base).Microseconds()
+		delta = _nowFn().Sub(fq.base).Milliseconds()
 		cost = math.Exp(float64(1)/float64(fq.config.tau)*float64(delta)) * reqCost
 		nextAccumulated = pc.Accumulated() + cost
 	}
@@ -159,7 +167,7 @@ func (fq *FairQueue) normalizeFactor() float64 {
 
 func (fq *FairQueue) normalizeStats() {
 	timeDelta := math.Log(fq.normalizeFactor()) * float64(fq.config.tau)
-	// time_delta is negative; and this may advance .base into the future
+	//// time_delta is negative; and this may advance .base into the future
 	fq.base = fq.base.Add(time.Duration(-timeDelta))
 	for _, pc := range fq.allClasses {
 		pc.SetAccumulated(pc.Accumulated() * fq.normalizeFactor())
@@ -184,11 +192,30 @@ func (fq *FairQueue) popPriorityClass() *PriorityClass {
 
 // priority class
 type FairQueueRequestDescriptor struct {
-	Type   RequestType
-	Fn     func()
+	Typ     RequestType
+	Fn      func()
+	ErrorC  chan error
+	ReqSize int
+
 	Weight int
 	Size   int
-	ErrorC chan error
+}
+
+func (desc *FairQueueRequestDescriptor) Do() {
+	desc.Fn()
+}
+
+func (desc *FairQueueRequestDescriptor) Done(err error) {
+	desc.ErrorC <- err
+	close(desc.ErrorC) // in case someone block after calling more than once
+}
+
+func (desc *FairQueueRequestDescriptor) RequestSize() int {
+	return desc.ReqSize
+}
+
+func (desc *FairQueueRequestDescriptor) Type() RequestType {
+	return desc.Typ
 }
 
 type request struct {

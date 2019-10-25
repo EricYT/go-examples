@@ -69,7 +69,7 @@ func newFairQueueConfig(iocfg ioQueueConfig) FairQueueConfig {
 	var c FairQueueConfig
 	c.maxReqCount = iocfg.maxReqCount
 	c.maxBytesCount = iocfg.maxBytesCount
-	c.tau = 100 * 1000 // 100ms convert to Nanosecond
+	c.tau = 40 * 1000 // 40s window
 	return c
 }
 
@@ -80,7 +80,7 @@ type IOQueue struct {
 	fq *FairQueue
 
 	// NOTE: concurrent queue
-	schedulerC chan chan *FairQueueRequestDescriptor
+	schedulerC chan chan ioDescriptor
 	queues     []*ioqueue
 
 	wg      sync.WaitGroup
@@ -98,7 +98,7 @@ func NewIOQueue(mp Mountpoint) *IOQueue {
 	q.fq = NewFairQueue(newFairQueueConfig(q.cfg), 128)
 
 	// ioqueue
-	q.schedulerC = make(chan chan *FairQueueRequestDescriptor, int(mp.NumIOQueues))
+	q.schedulerC = make(chan chan ioDescriptor, int(mp.NumIOQueues))
 	for i := 0; i < int(mp.NumIOQueues); i++ {
 		w := newIOQueue(q.schedulerC, q.safeAttach)
 		q.queues = append(q.queues, w)
@@ -125,7 +125,11 @@ func (q *IOQueue) Close() {
 }
 
 func (q *IOQueue) QueueRequest(pc string, size int, reqType RequestType, fn func()) (IOFuture, error) {
-	des := &FairQueueRequestDescriptor{Fn: fn, ErrorC: make(chan error, 1)}
+	des := &FairQueueRequestDescriptor{
+		Fn:      fn,
+		ReqSize: size,
+		ErrorC:  make(chan error, 1),
+	}
 	if reqType == RequestTypeWrite {
 		des.Weight = int(q.cfg.diskReqWriteToReadMultiplier)
 		des.Size = int(q.cfg.diskBytesWriteToReadMultiplier) * size
@@ -134,14 +138,13 @@ func (q *IOQueue) QueueRequest(pc string, size int, reqType RequestType, fn func
 		des.Size = ReadRequestBaseCount * size
 	}
 
-	if err := q.fq.Enqueue(pc, des); err != nil {
+	queueSize, err := q.fq.Enqueue(pc, des) // it's unsafe to request size by another .Size() api
+	if err != nil {
 		return nil, err
 	}
-
 	QueueRequestMetric(reqType, size)
-
 	// wake up main loop to consume io request
-	if q.fq.Size() == 1 {
+	if queueSize == 1 {
 		q.signalC <- struct{}{}
 	}
 
@@ -156,14 +159,26 @@ func (q *IOQueue) UnregisterPriorityClass(name string) {
 	q.fq.UnregisterPriorityClass(name)
 }
 
-func (q *IOQueue) dispatchRequest(desc *FairQueueRequestDescriptor) {
+func (q *IOQueue) dispatchRequest(req *FairQueueRequestDescriptor) {
+	var err error
+	defer func() {
+		req.Done(err)
+	}()
+
 	select {
-	case jobC := <-q.schedulerC:
-		jobC <- desc
+	case queue := <-q.schedulerC:
+
+		select {
+		case queue <- req:
+			return
+		case <-q.closeC:
+			err = ErrIOQueueClosed
+			break
+		}
+
 	case <-q.closeC:
-		// FIXME:
-		desc.ErrorC <- ErrIOQueueClosed
-		return
+		err = ErrIOQueueClosed
+		break
 	}
 }
 

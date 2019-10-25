@@ -2,16 +2,22 @@ package ioqueue
 
 import "time"
 
+type ioDescriptor interface {
+	Do()
+	Type() RequestType
+	RequestSize() int
+}
+
 type ioqueue struct {
-	schedulerC chan chan *FairQueueRequestDescriptor
-	queueC     chan *FairQueueRequestDescriptor
+	schedulerC chan chan ioDescriptor
+	queueC     chan ioDescriptor
 	doneC      chan struct{}
 }
 
-func newIOQueue(scheduler chan chan *FairQueueRequestDescriptor, sr func(func())) *ioqueue {
+func newIOQueue(scheduler chan chan ioDescriptor, sr func(func())) *ioqueue {
 	q := &ioqueue{
 		schedulerC: scheduler,
-		queueC:     make(chan *FairQueueRequestDescriptor),
+		queueC:     make(chan ioDescriptor),
 		doneC:      make(chan struct{}),
 	}
 	sr(q.run)
@@ -32,9 +38,8 @@ func (q *ioqueue) run() {
 		select {
 		case desc := <-q.queueC:
 			start = time.Now()
-			desc.Fn()
-			desc.ErrorC <- nil
-			RequestDurationMetric(desc.Type, start, desc.Size)
+			desc.Do()
+			RequestDurationMetric(desc.Type(), start, desc.RequestSize())
 		case <-q.doneC:
 			return
 		}

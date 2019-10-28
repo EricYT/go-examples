@@ -4,6 +4,7 @@ import "time"
 
 type ioDescriptor interface {
 	Do()
+	Done(err error)
 	Type() RequestType
 	RequestSize() int
 }
@@ -39,6 +40,7 @@ func (q *ioqueue) run() {
 		case desc := <-q.queueC:
 			start = time.Now()
 			desc.Do()
+			desc.Done(nil)
 			RequestDurationMetric(desc.Type(), start, desc.RequestSize())
 		case <-q.doneC:
 			return

@@ -147,14 +147,14 @@ func (fq *FairQueue) Dequeue() (*FairQueueRequestDescriptor, bool) {
 var _nowFn = time.Now
 
 func (fq *FairQueue) nextAccumulated(pc *PriorityClass, req *request) float64 {
-	delta := _nowFn().Sub(fq.base).Milliseconds()
+	delta := _nowFn().Sub(fq.base) / time.Millisecond
 	reqCost := (float64(req.desc.Weight)/float64(fq.config.maxReqCount) + float64(req.desc.Size)/float64(fq.config.maxBytesCount)) / float64(pc.Shares())
 	cost := math.Exp(float64(1)/float64(fq.config.tau)*float64(delta)) * reqCost
 	nextAccumulated := pc.Accumulated() + cost
 	for math.IsInf(nextAccumulated, 0) {
 		fq.normalizeStats()
 		// If we have renormalized, our time base will have changed. This should happen very infrequently
-		delta = _nowFn().Sub(fq.base).Milliseconds()
+		delta = _nowFn().Sub(fq.base) / time.Millisecond
 		cost = math.Exp(float64(1)/float64(fq.config.tau)*float64(delta)) * reqCost
 		nextAccumulated = pc.Accumulated() + cost
 	}

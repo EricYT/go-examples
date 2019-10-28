@@ -8,13 +8,18 @@ import (
 )
 
 var (
-	stubDo = func() {}
+	stubDo   = func() {}
+	stubDone = func(err error) {}
 )
 
 type fakeIODesc struct{}
 
 func (f *fakeIODesc) Do() {
 	stubDo()
+}
+
+func (f *fakeIODesc) Done(err error) {
+	stubDone(err)
 }
 
 func (f *fakeIODesc) Type() RequestType { return RequestTypeWrite }
@@ -33,10 +38,17 @@ func TestQueue_New(t *testing.T) {
 	}
 
 	defer func(old func()) { stubDo = old }(stubDo)
+	defer func(old func(error)) { stubDone = old }(stubDone)
 
 	var count int
 	done := make(chan struct{})
-	stubDo = func() { count++; close(done) }
+	stubDo = func() { count++ }
+	stubDone = func(err error) {
+		if !assert.Nil(t, err) {
+			return
+		}
+		close(done)
+	}
 
 	q := newIOQueue(scheduler, sr)
 	q.queueC <- &fakeIODesc{}

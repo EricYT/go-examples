@@ -162,7 +162,9 @@ func (q *IOQueue) UnregisterPriorityClass(name string) {
 func (q *IOQueue) dispatchRequest(req *FairQueueRequestDescriptor) {
 	var err error
 	defer func() {
-		req.Done(err)
+		if err != nil {
+			req.Done(err)
+		}
 	}()
 
 	select {
